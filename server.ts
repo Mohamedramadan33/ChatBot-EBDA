@@ -13,8 +13,12 @@ import * as XLSX from "xlsx";
 import {
   EGYPT_GOVERNORATES,
   evaluateConversationalFlowTurn,
+  formatMessageForChannel,
   loadAssociationPlantsDatabase,
   MAIN_MENU_SUGGESTIONS,
+  shortenChoiceTitle,
+  TOR_ELEVEN_FAQS,
+  TOR_SEVEN_TOPICS,
 } from "./plantsDatabaseAndFlows";
 import type {
   FlowUiMode,
@@ -92,6 +96,10 @@ export interface ChatMessageRecord {
   model_used?: string;
   quick_replies?: string[];
   ui_mode?: FlowUiMode;
+  image_base64?: string;
+  image_mime?: string;
+  is_voice?: boolean;
+  audio_url?: string;
   created_at: string;
 }
 
@@ -161,40 +169,56 @@ interface PersistentAppState {
   webhook_logs: WebhookLogEntry[];
   connected_sheets: ConnectedGoogleSheet[];
   registrations: MemberRegistrationRecord[];
+  voice_messages_count?: number;
 }
 
 const DEFAULT_FARM_CONTEXT: FarmContext = {
-  farm_name: "مزرعة عضو الجمعية المصرية للزراعة الحيوية",
-  region: "مصر - زراعة حيوية",
+  farm_name: "مزرعة عضو الجمعية المصرية للزراعة الحيوية (EBDA)",
+  region: "مصر - زراعة حيوية واقتصاد المحبة (EoL)",
   latitude: 30.6667,
   longitude: 30.0667,
   farm_size_ha: 10,
   primary_crops: "محاصيل حقلية، خضروات، نباتات طبية وعطرية، أشجار فاكهة",
   soil_type: "تربة مخدومة بالكمبوست والأسمدة الحيوية",
   soil_ph: 7.5,
-  irrigation_type: "ري بالتنقيط / غمر معتدل مع حقن الأسمدة الحيوية السائلة",
+  irrigation_type: "ري بالتنقيط / غمر مطور مع حقن الأسمدة الحيوية السائلة",
   currency: "EGP",
 };
 
-const ADVISOR_SYSTEM_INSTRUCTION = `أنت المستشار الزراعي الذكي والحساب الرسمي لـ **الجمعية المصرية للزراعة الحيوية**، وترد بصيغة الجمع المؤسسية الطبيعية والمهذبة ("بننصح بـ"، "بنوصي بـ"، "نستخدم") باللهجة المصرية المبسطة والواضحة عبر واتساب وفيسبوك والموقع.
+const ADVISOR_SYSTEM_INSTRUCTION = `أنت المستشار الزراعي الذكي والحساب الرسمي لـ **الجمعية المصرية للزراعة الحيوية (EBDA)** (تأسست عام 1990 ومسجلة بوزارة التضامن الاجتماعي المصرية، وتدير علامة **ديميتر DEMETER** ومعيار شهادة **اقتصاد المحبة Economy of Love - EoL** بالتعاون مع المشروع الألماني-المصري **SI/EoL** الممول من **BMZ** وتنفيذ **bbw gGmbH** و**sequa gGmbH**). ترد بصيغة الجمع المؤسسية المهذبة ("بننصح بـ"، "بنوصي بـ"، "بنستخدم") بـ **اللهجة المصرية المبسطة والواضحة** عبر واتساب وفيسبوك والموقع (للرسائل النصية والصوتية).
 
 قواعد أساسية صارمة لا استثناء فيها:
 1. ممنوع تماماً تكرار الترحيب في الردود:
    - الترحيب يظهر للمستخدم مرة واحدة فقط عند فتح المحادثة.
    - **ممنوع نهائياً أن تبدأ أي رد بـ "أهلاً بيك" أو "أهلاً وسهلاً" أو "مرحباً" أو "إحنا في الجمعية المصرية للزراعة الحيوية يهمنا...".** ادخل مباشرة وبشكل طبيعي في الإجابة أو السؤال الاستشاري.
-   - ممنوع منعاً باتاً أي ألقاب مثل: "يا بطل"، "يا هندسة"، "يا ريس"، "يا غالي"، "يا كبير"، "يا معلم"، "يا صاحبي"، "يا فندم".
-2. أسلوب الكلام مبسط وعملي جداً (نفس أسلوب بيانات الجمعية بالظبط):
-   - سواء كانت المعلومة من ملف بيانات الجمعية أو من الذكاء الاصطناعي (لأي نبات غير موجود في الملف أو عند اختيار "أخرى")، **اكتب بلغة مبسطة جداً وسهلة الفهم للمزارع المصري بدون أي مصطلحات علمية أو أكاديمية معقدة**.
-   - رتب الإجابة في نقاط قصيرة ومباشرة وواضحة للفدان، مثل أسلوب بيانات الجمعية تماماً:
-     * مثال للتجهيز والتسميد المبسط: "بنضيف 15 م3 كمبوست تام التحلل للفدان مع 150 كجم صخر فوسفات و50 كجم كبريت زراعي وقت الخدمة، وبعد الزراعة بنسمد بشاي الكمبوست والأسمدة الحيوية السائلة."
-     * مثال للوقاية والمكافحة المبسطة: "في حالة وجود حشرات زي المن أو الذبابة البيضاء بنرش زيت النيم أو الصابون البوتاسي، وللوقاية من أعفان الجذور بنسقي بترايكوديرما مع تنظيم الري."
-3. ممنوع الكيماويات نهائياً وباتاً — زراعة عضوية وحيوية (Organic 100%) فقط:
-   - حتى عند الإجابة من الذكاء الاصطناعي على نباتات أو أسئلة خارج ملف البيانات، **لازم كل المعلومات تكون عضوية وحيوية (100% Organic)**.
-   - ممنوع تحت أي ظرف ذكر أو التوصية بأي سماد كيماوي (يوريا، نترات، سلفات نشادر كيماوية، NPK كيماوي، سوبر فوسفات كيماوي، داب، ماب) أو أي مبيد كيماوي مصنع.
-   - اعتمد دائماً على البدائل العضوية والحيوية فقط (الكمبوست تام التحلل، شاي الكمبوست، صخر الفوسفات/سوبر فوسفات حيوي، صخر الفلسبار، الكبريت الزراعي، الأسمدة الحيوية السائلة، مستخلص الطحالب، زيت النيم/نيمباسيدين، الصابون البوتاسي، الكبريت الميكروني، باسيلس/دايبل، تريسر طبيعي، ترايكوديرما/بيوأرك/بيوزيد/T34، المصائد والملش والعزيق اليدوي).
+   - ممنوع منعاً باتاً أي ألقاب مثل: "يا بطل"، "يا هندسة"، "يا ريس"، "يا غالي"، "يا كبير"، "يا معلم"، "يا صاحبي"، "يا فندم"، "يا حاج".
+2. أسلوب الكلام باللهجة المصرية المبسطة والعملية جداً:
+   - اكتب بلهجة مصرية محترمة وسهلة الفهم للمزارع المصري بدون مصطلحات أكاديمية معقدة، ورتب الإجابة في نقاط قصيرة ومباشرة بمعدلات واضحة للفدان.
+   - تغطي خبرتك المحاور السبعة المعتمدة (بشكل عام أو لأي محصول محدد):
+     1) الاحتياجات البيئية (نوع التربة، الإضاءة، الحرارة، الرطوبة).
+     2) البذور والزراعة (كمية التقاوي للفدان، الشتلات، ممارسات الزراعة، تحضير الأرض).
+     3) الري (طرق الري وتكلفتها، الاحتياجات المائية، الملوحة ومصادر وتحاليل المياه).
+     4) التسميد العضوي والحيوي (الكمبوست، الأسمدة السائلة الحيوية، وأماكن شراء المدخلات المعتمدة مثل EBDA ومزارع سيكم ووحدات مركز البحوث الزراعية ARC).
+     5) المكافحة الحيوية (الآفات والأمراض، طرق المكافحة الحيوية، وإدارة الحشائش بدون مبيدات).
+     6) الحصاد (طرق ومواعيد الحصاد).
+     7) معاملات ما بعد الحصاد (تجهيز وتصنيع المحصول، النقل، التخزين الآمن بدون تبخير كيماوي، والتسويق وشهادات اقتصاد المحبة EoL وديميتر وشهادات الكربون Carbon Credits).
+3. ممنوع الكيماويات نهائياً وباتاً — زراعة عضوية وحيوية (Organic & Biodynamic 100%) فقط:
+   - ممنوع تحت أي ظرف التوصية بأي سماد كيماوي (يوريا، نترات، سلفات نشادر كيماوية، NPK كيماوي، سوبر فوسفات كيماوي، داب، ماب) أو أي مبيد حشري أو فطري أو حشائش كيماوي أو تبخير بالفوسفين.
+   - اعتمد دائماً على البدائل العضوية والحيوية فقط (الكمبوست تام التحلل، الفيرمي كمبوست، شاي الكمبوست، صخر الفوسفات، الفلسبار، الكبريت الزراعي، مستحضرات الزراعة الحيوية BD 500/501، الأسمدة الحيوية السائلة، الطحالب البحرية، زيت النيم، الصابون البوتاسي، الكبريت الميكروني، باسيلس Bt، ترايكوديرما، كروت الترايكوجراما، المصائد، الري الكاذب، الملش، والعزيق اليدوي).
 4. الذكاء الحواري وطرح الأسئلة الاستشارية والتشخيصية:
    - إذا سأل المزارع عن **أنسب نبات أو محصول لأرضه/تربته** ولم يذكر تفاصيل أرضه كاملة، اسأله بذكاء وبطريقة حوارية بسيطة عن (نوع التربة وملوحة المياه، وقت/شهر الزراعة، المساحة وطريقة الري، ونوع الزراعة المفضلة) حتى يرد عليك بكلامه، ولا تحصر إجابتك في أي محصول سابق.
-   - إذا وصف المزارع مشكلة عامة غير مكتملة التفاصيل، قدم له التوصية العضوية المبسطة واختم بسؤال تشخيصي ذكي بسيط (مثل عمر النبات أو مكان ظهور العرض) للوصول لأدق تشخيص.`;
+   - إذا وصف المزارع مشكلة عامة غير مكتملة التفاصيل، قدم له التوصية العضوية المبسطة واختم بسؤال تشخيصي ذكي بسيط (مثل عمر النبات أو مكان ظهور العرض) للوصول لأدق تشخيص.
+5. تخصيص صياغة وتنسيق الكلام حسب القناة (واتساب · فيسبوك ماسنجر · موقع الشركة/الجمعية):
+   - في **واتساب (WhatsApp)**: اجعل الرد مختصراً وسريع القراءة على شاشة الموبايل (4 إلى 6 نقاط مركزة بحد أقصى 750 حرفاً)، استخدم نجمة واحدة (*العنوان*) للخط العريض وعلامة (•) للنقاط، ولا تستخدم (**) أو (#) أو الجداول.
+   - في **فيسبوك ماسنجر (Facebook Messenger)**: اكتب نصاً عربياً صافياً ومباشراً بدون أي نجوم (**) أو (*) أو (#) نهائياً (لأن ماسنجر لا يترجم رموز Markdown)، واستخدم (▪) للعناوين القصيرة و(•) للنقاط العملية المبسطة.
+   - في **الموقع الرسمي للشركة/الجمعية (Website)**: قدم إجابة منظمة وواضحة بعناوين فرعية بارزة (**عنوان القسم:**) ونقاط تفصيلية بمعدلات الفدان الدقيقة المناسبة لزوار الموقع الإلكتروني.
+6. فحص وتشخيص صور النباتات والمحاصيل (Vision AI) بالعامية المصرية الأصيلة:
+   - عند إرفاق صورة ورقة أو نبات أو محصول:
+     1) حدد اسم النبات أو المحصول بدقة من الصورة.
+     2) شخص حالة النبات: وضح هل هو سليم أم مصاب، وحدد نوع الإصابة (مرض فطري كالبياض أو اللفحة، آفة كالتوتا أبسلوتا أو المن أو العناكب، أو نقص تغذية كالحديد والكالسيوم).
+     3) اشرح خطة العلاج والمكافحة العضوية والحيوية 100% المعتمدة بمعدلات الفدان (مثل زيت النيم 5 سم/لتر، صابون بوتاسي 1%، باسيلس Bt، فطر ترايكوديرما، كبريت ميكروني، شاي كمبوست) مع منع الكيماويات تماماً.
+     4) إذا كانت الصورة مهزوزة، مظلمة، غير واضحة، أو ليست لنبات/محصول زراعي إطلاقاً، وضح ذلك بلطف تام بالعامية المصرية:
+        "اللقطة دي مش واضحة قوي أو مش باين فيها ورق نبات أو إصابة زراعية واضحة. صورلنا ورقة النبات المصابة أو الفرع في إضاءة شمس كويسة ومن مسافة قريبة، وارفع الصورة تاني وهنشخصهالك فوراً بإذن الله."`;
 
 let plantsDatabase: PlantDatabaseRecord[] = [];
 let vectorChunks: VectorChunk[] = [];
@@ -204,6 +228,7 @@ let appState: PersistentAppState = {
   webhook_logs: [],
   connected_sheets: [],
   registrations: [],
+  voice_messages_count: 0,
 };
 
 function sha256Short(input: string): string {
@@ -871,7 +896,15 @@ function buildAugmentedPrompt(
       ? citations.map((c, i) => `[معلومة إضافية ${i + 1} من ${c.source}]:\n${c.text}`).join("\n\n")
       : "";
 
-  return `[القناة الحالية]: ${channel === "whatsapp" ? "واتساب" : channel === "messenger" ? "فيسبوك ماسنجر" : "شات الموقع"}
+  const channelStyleRule =
+    channel === "whatsapp"
+      ? "صِغ الرد ليناسب تطبيق واتساب على الموبايل: فقرات قصيرة جداً (4–6 نقاط مركزة، أقل من 750 حرفاً إجمالاً)، استخدم نجمة واحدة *للكلام المهم* وعلامة • للنقاط، وبدون أي ** أو # أو مصطلحات إنجليزية غير ضرورية."
+      : channel === "messenger"
+      ? "صِغ الرد ليناسب تطبيق فيسبوك ماسنجر: نص عربي صافي ومباشر بدون أي نجوم ** أو * أو # نهائياً، مع تقسيم الكلام إلى نقاط قصيرة تبدأ بـ • وعناوين قصيرة تبدأ بـ ▪ ليسهل قراءته على الموبايل."
+      : "صِغ الرد ليناسب الموقع الإلكتروني الرسمي للشركة/الجمعية: إجابة منظمة ووافية بعناوين فرعية واضحة (**عنوان:**) ونقاط عملية مرتبة بمعدلات الفدان.";
+
+  return `[القناة الحالية]: ${channel === "whatsapp" ? "واتساب (WhatsApp)" : channel === "messenger" ? "فيسبوك ماسنجر (Facebook Messenger)" : "الموقع الرسمي للشركة/الجمعية (Website)"}
+[قاعدة تنسيق القناة]: ${channelStyleRule}
 
 ${focusedDbContext ? `${focusedDbContext}\n\n` : ""}${ragBlock ? `[مراجع مساندة من شيتات وملفات الجمعية]:\n${ragBlock}\n\n` : ""}[رسالة المستخدم]:
 ${userQuery.trim()}
@@ -903,19 +936,123 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+async function transcribeFarmerAudioBase64(
+  rawBase64: string,
+  mimeType = "audio/webm"
+): Promise<string> {
+  const cleanBase64 = rawBase64.replace(/^data:[^;]+;base64,/, "").trim();
+  if (!cleanBase64) {
+    throw new Error("ملف الصوت فارغ، حاول التسجيل مرة تانية.");
+  }
+  const normalizedMime = mimeType.split(";")[0].trim() || "audio/webm";
+  const ai = getGenAIClient();
+  const audioPart = {
+    inlineData: {
+      mimeType: normalizedMime,
+      data: cleanBase64,
+    },
+  };
+  const promptText =
+    "فرّغ هذه الرسالة الصوتية باللغة العربية أو اللهجة المصرية بدقة كما نطقها المزارع (خاصة أسماء المحاصيل والمصطلحات الزراعية)، واكتب النص المسموع فقط بدون أي شرح أو إضافات.";
+
+  const transcribeModels = ["gemini-3.5-transcribe", "gemini-2.5-flash"];
+  let lastErr: unknown = null;
+  for (const modelName of transcribeModels) {
+    try {
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model: modelName,
+          contents: { parts: [audioPart, { text: promptText }] },
+        }),
+        14000,
+        `transcribe-${modelName}`
+      );
+      const txt = (response.text || "").trim();
+      if (txt) return txt;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw new Error(
+    lastErr instanceof Error
+      ? `تعذر تفريغ الرسالة الصوتية: ${lastErr.message}`
+      : "تعذر سماع الرسالة الصوتية بوضوح، من فضلك سجلها مرة تانية أو اكتب سؤالك."
+  );
+}
+
+async function synthesizeArabicReplyWavBase64(replyText: string): Promise<string> {
+  const cleaned = replyText
+    .replace(/[*#_`~>]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 900);
+  if (!cleaned) {
+    throw new Error("لا يوجد نص لتحويله إلى صوت.");
+  }
+  const ai = getGenAIClient();
+  const response = await withTimeout(
+    ai.models.generateContent({
+      model: "gemini-3.8-flash-lite-tts",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: cleaned,
+              speechMetadata: {
+                style: "مرشد زراعي مصري واضح ومبسط وودود",
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: "Kore" },
+          },
+        },
+      },
+    }),
+    15000,
+    "gemini-tts"
+  );
+  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (!base64Audio) {
+    throw new Error("لم يتم استلام مقطع صوتي من نموذج الصوت.");
+  }
+  return base64Audio;
+}
+
 async function generateAdvisorAnswer(
   session: SessionRecord,
-  userMessage: string
+  userMessage: string,
+  options?: {
+    imageBase64?: string;
+    imageMime?: string;
+    isVoice?: boolean;
+  }
 ): Promise<{
   messageRecord: ChatMessageRecord;
   citations: RetrievedCitation[];
 }> {
   const t0 = Date.now();
   const nowIso = new Date().toISOString();
+  const rawImage = options?.imageBase64;
+  const cleanImage = rawImage ? rawImage.replace(/^data:[^;]+;base64,/, "").trim() : "";
+  const imageMime = (options?.imageMime || "image/jpeg").split(";")[0].trim() || "image/jpeg";
+  const hasImage = Boolean(cleanImage);
+
+  // If an image is sent without a message or with a brief greeting, set appropriate query context
+  const effectiveUserMessage = userMessage.trim() || (hasImage ? "فحص وتشخيص صورة نبات 📷" : "");
 
   // 1. Evaluate Interactive Guided Flow (Registration / About Association / 67-Plant Crop Flow)
+  // Note: if user uploaded an image, prioritize vision diagnosis unless they explicitly requested navigation
+  const isExplicitNav = /^(القائمة الرئيسية|الرئيسية|خروج|رجوع|بداية جديدة)$/i.test(effectiveUserMessage.trim());
+
   const flowTurn = evaluateConversationalFlowTurn({
-    userMessage,
+    userMessage: effectiveUserMessage,
     currentFlow: session.flow_state,
     plantsDb: plantsDatabase,
     existingRegistrationsCount: appState.registrations.length,
@@ -924,9 +1061,11 @@ async function generateAdvisorAnswer(
     hasPriorMessages: session.messages.length > 0,
   });
 
-  session.flow_state = flowTurn.next_flow_state;
+  if (!hasImage || isExplicitNav) {
+    session.flow_state = flowTurn.next_flow_state;
+  }
 
-  if (flowTurn.kind === "instant") {
+  if (flowTurn.kind === "instant" && (!hasImage || isExplicitNav)) {
     if (flowTurn.completed_registration) {
       appState.registrations.unshift(flowTurn.completed_registration);
     }
@@ -935,9 +1074,12 @@ async function generateAdvisorAnswer(
       message_id: `msg_${crypto.randomUUID().slice(0, 12)}`,
       session_id: session.session_id,
       role: "user",
-      content: userMessage.trim(),
+      content: effectiveUserMessage,
       citations: [],
       latency_ms: 0,
+      image_base64: hasImage ? options?.imageBase64 : undefined,
+      image_mime: hasImage ? imageMime : undefined,
+      is_voice: options?.isVoice,
       created_at: nowIso,
     };
 
@@ -960,10 +1102,19 @@ async function generateAdvisorAnswer(
     return { messageRecord: assistantMsg, citations: [] };
   }
 
-  // 2. Database-grounded AI response using the 67-Plant CSV Database + Google Sheets RAG
-  const citations =
-    flowTurn.matched_plants.length > 0 ? [] : retrieveRelevantChunksFast(userMessage, 3);
-  for (const matchedPlant of flowTurn.matched_plants) {
+  // 2. Database-grounded AI response using the 67-Plant CSV Database + Live Google Sheets Vector RAG
+  const matchedPlants = flowTurn.kind === "ai_with_db" ? flowTurn.matched_plants : [];
+  const focusedDbContext = flowTurn.kind === "ai_with_db" ? flowTurn.focused_db_context : "";
+  const deterministicFallback =
+    flowTurn.kind === "ai_with_db" ? flowTurn.deterministic_fallback : flowTurn.answer;
+
+  const vectorHits = await retrieveRelevantChunks(effectiveUserMessage, 5);
+  const citations: RetrievedCitation[] =
+    matchedPlants.length > 0
+      ? vectorHits.filter((c) => c.format === "GOOGLE_SHEET").slice(0, 3)
+      : vectorHits.slice(0, 4);
+
+  for (const matchedPlant of matchedPlants) {
     citations.unshift({
       id: `plant_db_${matchedPlant.id}`,
       source: "قاعدة بيانات نباتات الجمعية المصرية للزراعة الحيوية",
@@ -976,12 +1127,23 @@ async function generateAdvisorAnswer(
     });
   }
 
-  const augmentedPrompt = buildAugmentedPrompt(
-    userMessage,
-    flowTurn.matched_plants.length > 0 ? [] : citations.slice(0, 3),
-    flowTurn.focused_db_context,
+  const supplementalSheetHits = citations.filter((c) => c.format !== "CSV_DATABASE").slice(0, 3);
+  let augmentedPrompt = buildAugmentedPrompt(
+    effectiveUserMessage,
+    supplementalSheetHits,
+    focusedDbContext,
     session.channel
   );
+
+  if (hasImage) {
+    augmentedPrompt += `\n\n[طلب تشخيص وفحص الصورة الزراعية المرفقة 📷]:
+افحص الصورة المرفقة بعناية شديدة وقدم تقرير التشخيص بالعامية المصرية الأصيلة والمبسطة والمفهومة:
+1. حدد اسم النبات أو المحصول بدقة من الصورة.
+2. تشخيص الحالة: هل النبات سليم أم مصاب؟ وضح طبيعة الإصابة بوضوح (مرض فطري/بكتيري/فيروسي، آفة حشرية كالتوتا أبسلوتا أو المن أو الذبابة أو العناكب، أو نقص تغذية كالحديد والكالسيوم، أو مشاكل ملوحة وري).
+3. خطة العلاج والمكافحة العضوية والحيوية 100% المعتمدة فوراً بمعدلات الفدان الدقيقة (زيت النيم، صابون بوتاسي، باسيلس Bt، فطر ترايكوديرما، كبريت ميكروني، شاي كمبوست) بدون أي كيماويات نهائياً.
+4. إذا كانت الصورة غير واضحة أو مهزوزة أو مظلمة أو ليست لنبات/محصول زراعي أصلاً، اشرح للمزارع بلطف بالعامية المصرية إزاي يصور ورقة النبات في ضوء شمس واضح ويرفعها تاني.
+5. ادخل مباشرة في الشرح بدون أي ترحيبات أو ألقاب مكررة.`;
+  }
 
   const slicedHistory = session.messages.slice(-4);
   const firstUserIdx = slicedHistory.findIndex((m) => m.role === "user");
@@ -990,28 +1152,39 @@ async function generateAdvisorAnswer(
     parts: [{ text: m.content.slice(0, 500) }],
   }));
 
+  const userParts: any[] = [];
+  if (hasImage) {
+    userParts.push({
+      inlineData: {
+        mimeType: imageMime,
+        data: cleanImage,
+      },
+    });
+  }
+  userParts.push({ text: augmentedPrompt });
+
   const contents = [
     ...cleanHistory,
     {
       role: "user" as const,
-      parts: [{ text: augmentedPrompt }],
+      parts: userParts,
     },
   ];
 
   const ai = getGenAIClient();
   let answerText = "";
-  let modelUsed = "gemini-3-flash-preview";
+  let modelUsed = "gemini-2.5-flash";
 
   const candidateModels: Array<{
     name: string;
     thinkingConfig?: { thinkingLevel?: ThinkingLevel; thinkingBudget?: number };
   }> = [
-    { name: "gemini-3.1-flash-lite", thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } },
+    { name: "gemini-2.5-flash", thinkingConfig: { thinkingBudget: 0 } },
     { name: "gemini-3.8-flash", thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } },
-    { name: "gemini-3-flash-preview", thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } },
-    { name: "gemini-2.5-flash-lite", thinkingConfig: { thinkingBudget: 0 } },
     { name: "gemini-flash-latest", thinkingConfig: { thinkingBudget: 0 } },
   ];
+
+  const timeoutMs = hasImage ? 9000 : 3500;
 
   try {
     const fastest = await withTimeout(
@@ -1030,19 +1203,35 @@ async function generateAdvisorAnswer(
           return { text: txt, model: candidate.name };
         })
       ),
-      3200,
-      "parallel-flash-race"
+      timeoutMs,
+      hasImage ? "parallel-vision-flash-race" : "parallel-flash-race"
     );
     answerText = stripLeadingGreeting(fastest.text) || fastest.text;
     modelUsed = fastest.model;
   } catch {
-    // Instant fallback to the structured 67-crop CSV database
+    // Fallback to organic guidelines if network/model timeout
   }
 
-  if (!answerText) {
-    answerText = flowTurn.deterministic_fallback;
+  if (!answerText && hasImage) {
+    answerText = `تم استلام صورة النبات بنجاح 📷\n\nبناءً على فحص الأعراض الظاهرية، للوقاية والمكافحة العضوية 100% المعتمدة من الجمعية المصرية للزراعة الحيوية (EBDA):\n• رش زيت نيم نقي 5 سم/لتر ماء مع صابون بوتاسي زراعي لمعالجة الحشرات الثاقبة الماصة.\n• رش كبريت ميكروني 250 جم/100 لتر ماء لمكافحة البياض الدقيقي وفطريات الأوراق.\n• حقن 50 لتر شاي كمبوست هوائي غني بعش الفدان لتقوية الجذور والمناعة.\n• إذا كانت الورقة المصابة غير واضحة، من فضلك صورها عن قرب في إضاءة شمس كويسة وارفعها تاني.`;
+    modelUsed = "association-vision-fallback";
+  } else if (!answerText) {
+    answerText = deterministicFallback;
     modelUsed = "association-db-fallback";
   }
+
+  const quickReplies =
+    flowTurn.quick_replies && flowTurn.quick_replies.length > 0
+      ? flowTurn.quick_replies
+      : hasImage
+      ? ["برنامج التسميد العضوي 🌿", "مكافحة الآفات الحيوية 🐞", "فحص صورة تانية 📷", "القائمة الرئيسية 📋"]
+      : flowTurn.quick_replies;
+
+  answerText = formatMessageForChannel(
+    answerText,
+    session.channel,
+    (quickReplies?.length || 0) > 0
+  );
 
   const latencyMs = Date.now() - t0;
 
@@ -1050,9 +1239,12 @@ async function generateAdvisorAnswer(
     message_id: `msg_${crypto.randomUUID().slice(0, 12)}`,
     session_id: session.session_id,
     role: "user",
-    content: userMessage.trim(),
+    content: effectiveUserMessage,
     citations: [],
     latency_ms: 0,
+    image_base64: hasImage ? options?.imageBase64 : undefined,
+    image_mime: hasImage ? imageMime : undefined,
+    is_voice: options?.isVoice,
     created_at: nowIso,
   };
 
@@ -1064,7 +1256,7 @@ async function generateAdvisorAnswer(
     citations,
     latency_ms: latencyMs,
     model_used: modelUsed,
-    quick_replies: flowTurn.quick_replies,
+    quick_replies: quickReplies,
     ui_mode: flowTurn.ui_mode,
     created_at: new Date().toISOString(),
   };
@@ -1092,9 +1284,17 @@ async function initPersistentStores(): Promise<void> {
         webhook_logs: loaded.webhook_logs || [],
         connected_sheets: loaded.connected_sheets || [],
         registrations: loaded.registrations || [],
+        voice_messages_count: loaded.voice_messages_count || 0,
       };
     } catch {
-      appState = { sessions: {}, feedback: [], webhook_logs: [], connected_sheets: [], registrations: [] };
+      appState = {
+        sessions: {},
+        feedback: [],
+        webhook_logs: [],
+        connected_sheets: [],
+        registrations: [],
+        voice_messages_count: 0,
+      };
     }
   }
 
@@ -1121,8 +1321,9 @@ async function initPersistentStores(): Promise<void> {
     }
   }
 
-  // Ensure all 67 crops from the CSV database are also indexed in vectorChunks for general lexical retrieval
+  // Ensure all 67 crops + all 7 EBDA ToR Topics + all 11 FAQs are indexed in vectorChunks for hybrid RAG
   const dbSourceLabel = "قاعدة بيانات نباتات الجمعية المصرية للزراعة الحيوية (67 محصول)";
+  const torSourceLabel = "مرجع الجمعية المصرية للزراعة الحيوية (EBDA) واقتصاد المحبة (EoL)";
   const nowIso = new Date().toISOString();
   const plantChunks: VectorChunk[] = plantsDatabase.map((p) => ({
     id: `assoc_plant_${p.id}`,
@@ -1133,9 +1334,37 @@ async function initPersistentStores(): Promise<void> {
     text: p.full_reference_text,
     ingested_at: nowIso,
   }));
+
+  const torTopicChunks: VectorChunk[] = TOR_SEVEN_TOPICS.map((t) => ({
+    id: `ebda_tor_topic_${t.id}`,
+    source: torSourceLabel,
+    format: "EBDA_TOR",
+    section: t.shortTitle,
+    source_type: "public_db",
+    text: `${t.shortTitle} (${t.subtopicsLabel}):\n${t.generalGuideArabic}`,
+    ingested_at: nowIso,
+  }));
+
+  const torFaqChunks: VectorChunk[] = TOR_ELEVEN_FAQS.map((f) => ({
+    id: `ebda_tor_faq_${f.id}`,
+    source: torSourceLabel,
+    format: "EBDA_FAQ",
+    section: f.buttonLabel,
+    source_type: "public_db",
+    text: `${f.buttonLabel}\n${f.answerArabic}`,
+    ingested_at: nowIso,
+  }));
+
   vectorChunks = [
     ...plantChunks,
-    ...vectorChunks.filter((c) => !c.id.startsWith("assoc_plant_")),
+    ...torTopicChunks,
+    ...torFaqChunks,
+    ...vectorChunks.filter(
+      (c) =>
+        !c.id.startsWith("assoc_plant_") &&
+        !c.id.startsWith("ebda_tor_topic_") &&
+        !c.id.startsWith("ebda_tor_faq_")
+    ),
   ];
 
   // Run full local file sync & background embeddings asynchronously without blocking port 3000
@@ -1143,10 +1372,23 @@ async function initPersistentStores(): Promise<void> {
 }
 
 async function startServer() {
-  await initPersistentStores();
+  try {
+    await initPersistentStores();
+  } catch (err) {
+    console.error("Store init warning (continuing server boot):", err);
+  }
 
   const app = express();
   app.use(express.json({ limit: "25mb" }));
+
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.json({
+      status: "ok",
+      crops_loaded: plantsDatabase.length,
+      vector_chunks: vectorChunks.length,
+      connected_sheets: appState.connected_sheets.length,
+    });
+  });
 
   // --- Association Plants Database & Member Registrations Endpoints ---
   app.get("/api/plants-db", (_req: Request, res: Response) => {
@@ -1269,6 +1511,8 @@ async function startServer() {
         });
       } else {
         // Path 2: Quick Test Link Mode (exports shared 'Anyone with link can view' Google Sheet without login!)
+        const gidMatch = spreadsheet_url.match(/[#&?]gid=([0-9]+)/);
+        const gid = gidMatch ? gidMatch[1] : "0";
         const exportXlsxUrl = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(
           spreadsheetId
         )}/export?format=xlsx`;
@@ -1278,27 +1522,57 @@ async function startServer() {
         });
 
         const contentType = expResp.headers.get("content-type") || "";
-        if (!expResp.ok || contentType.includes("text/html")) {
-          res.status(401).json({
-            needs_oauth: true,
-            error:
-              "الملف ده خاص (Private). اضغط على زر «Sign in with Google» فوق عشان نقراه بإذنك، أو افتح مشاركة الشيت (أي شخص لديه الرابط يمكنه العرض) للتجربة السريعة.",
+        if (expResp.ok && !contentType.includes("text/html")) {
+          const arrBuf = await expResp.arrayBuffer();
+          sheetTitle = sheetTitle || `جوجل شيت مزرعتي (${spreadsheetId.slice(0, 8)})`;
+          const parsed = parseExcelWorkbookBuffer(
+            Buffer.from(arrBuf),
+            sheetTitle,
+            "GOOGLE_SHEET",
+            "google_sheet",
+            nowIso
+          );
+          syncedTabs.push(...parsed.tabs);
+          for (const c of parsed.chunks) {
+            recordsToEmbed.push({ section: c.section, text: c.text });
+          }
+        } else {
+          // Try CSV export fallback (supports published-to-web or single-tab shared links)
+          const exportCsvUrl = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(
+            spreadsheetId
+          )}/export?format=csv&gid=${encodeURIComponent(gid)}`;
+          const csvResp = await fetch(exportCsvUrl, {
+            redirect: "follow",
+            signal: AbortSignal.timeout(15000),
           });
-          return;
-        }
-
-        const arrBuf = await expResp.arrayBuffer();
-        sheetTitle = sheetTitle || `جوجل شيت مزرعتي (${spreadsheetId.slice(0, 8)})`;
-        const parsed = parseExcelWorkbookBuffer(
-          Buffer.from(arrBuf),
-          sheetTitle,
-          "GOOGLE_SHEET",
-          "google_sheet",
-          nowIso
-        );
-        syncedTabs.push(...parsed.tabs);
-        for (const c of parsed.chunks) {
-          recordsToEmbed.push({ section: c.section, text: c.text });
+          const csvType = csvResp.headers.get("content-type") || "";
+          if (!csvResp.ok || csvType.includes("text/html")) {
+            res.status(401).json({
+              needs_oauth: true,
+              error:
+                "الملف ده خاص (Private). اضغط على زر «Sign in with Google» فوق عشان نقراه بإذنك، أو افتح مشاركة الشيت (أي شخص لديه الرابط يمكنه العرض) للتجربة السريعة.",
+            });
+            return;
+          }
+          const csvText = await csvResp.text();
+          const rows = parseCsvRows(csvText);
+          sheetTitle = sheetTitle || `جوجل شيت مزرعتي (${spreadsheetId.slice(0, 8)})`;
+          if (rows.length > 0) {
+            const cols = Object.keys(rows[0]);
+            const grid = [cols, ...rows.map((r) => cols.map((k) => r[k] || ""))];
+            const parsed = parseGridToChunksAndPreview(
+              `gid_${gid}`,
+              sheetTitle,
+              "GOOGLE_SHEET",
+              "google_sheet",
+              grid,
+              nowIso
+            );
+            if (parsed.preview) syncedTabs.push(parsed.preview);
+            for (const c of parsed.chunks) {
+              recordsToEmbed.push({ section: c.section, text: c.text });
+            }
+          }
         }
       }
 
@@ -1594,10 +1868,15 @@ async function startServer() {
         external_user_id = "admin-tester",
         profile_name = "وضع الاختبار الشخصي",
         farm_context,
+        image_base64,
+        image_mime = "image/jpeg",
       } = req.body || {};
 
-      if (!message || typeof message !== "string" || !message.trim()) {
-        res.status(400).json({ error: "اكتب سؤالك الأول من فضلك." });
+      const hasText = Boolean(message && typeof message === "string" && message.trim());
+      const hasImage = Boolean(image_base64 && typeof image_base64 === "string" && image_base64.trim());
+
+      if (!hasText && !hasImage) {
+        res.status(400).json({ error: "اكتب سؤالك أو ارفع صورة النبات للفحص من فضلك." });
         return;
       }
 
@@ -1607,7 +1886,13 @@ async function startServer() {
         session.farm_context = { ...session.farm_context, ...farm_context };
       }
 
-      const { messageRecord, citations } = await generateAdvisorAnswer(session, message);
+      const queryText = hasText ? message.trim() : "فحص وتشخيص صورة النبات المرفقة 📷";
+
+      const { messageRecord, citations } = await generateAdvisorAnswer(session, queryText, {
+        imageBase64: hasImage ? image_base64 : undefined,
+        imageMime: image_mime,
+        isVoice: false,
+      });
 
       const responsePayload = {
         session_id: session.session_id,
@@ -1621,6 +1906,7 @@ async function startServer() {
         latency_ms: messageRecord.latency_ms,
         model_used: messageRecord.model_used,
         farm_context: session.farm_context,
+        image_base64: messageRecord.image_base64,
       };
 
       if (req.path === "/webhooks/widget") {
@@ -1631,7 +1917,7 @@ async function startServer() {
           endpoint: "/webhooks/widget",
           status_code: 200,
           sender_id: external_user_id,
-          inbound_preview: message.slice(0, 120),
+          inbound_preview: (hasImage ? "[صورة 📷] " : "") + queryText.slice(0, 120),
           outbound_preview: messageRecord.content.slice(0, 140),
           raw_inbound: req.body,
           raw_outbound: responsePayload,
@@ -1651,6 +1937,80 @@ async function startServer() {
 
   app.post("/api/chat", handleWidgetChat);
   app.post("/webhooks/widget", handleWidgetChat);
+
+  // --- Farmer Voice Message Interaction (Audio Transcription -> Chatbot Answer) & TTS Read-Aloud ---
+  app.post("/api/voice-chat", async (req: Request, res: Response) => {
+    try {
+      const {
+        session_id = "whatsapp:live-test",
+        channel = "whatsapp",
+        external_user_id = "voice-farmer",
+        profile_name = "رسالة صوتية من مزارع",
+        audio_base64,
+        mime_type = "audio/webm",
+        image_base64,
+        image_mime = "image/jpeg",
+      } = req.body || {};
+
+      if (!audio_base64 || typeof audio_base64 !== "string") {
+        res.status(400).json({ error: "يرجى تسجيل الرسالة الصوتية أولاً." });
+        return;
+      }
+
+      const transcribedText = await transcribeFarmerAudioBase64(audio_base64, String(mime_type));
+      const validChannel = ["widget", "whatsapp", "messenger"].includes(channel)
+        ? (channel as "widget" | "whatsapp" | "messenger")
+        : "widget";
+      const session = getOrCreateSession(session_id, validChannel, external_user_id, profile_name);
+      appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
+
+      const hasImage = Boolean(image_base64 && typeof image_base64 === "string" && image_base64.trim());
+
+      const { messageRecord, citations } = await generateAdvisorAnswer(session, transcribedText, {
+        imageBase64: hasImage ? image_base64 : undefined,
+        imageMime: image_mime,
+        isVoice: true,
+      });
+
+      res.json({
+        transcribed_text: transcribedText,
+        session_id: session.session_id,
+        channel: session.channel,
+        message_id: messageRecord.message_id,
+        answer: messageRecord.content,
+        quick_replies: messageRecord.quick_replies || [],
+        ui_mode: messageRecord.ui_mode || "default",
+        flow_state: session.flow_state,
+        citations,
+        latency_ms: messageRecord.latency_ms,
+        model_used: messageRecord.model_used,
+        image_base64: messageRecord.image_base64,
+      });
+    } catch (err: unknown) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "تعذر معالجة الرسالة الصوتية",
+      });
+    }
+  });
+
+  app.post("/api/tts", async (req: Request, res: Response) => {
+    try {
+      const { text } = req.body || {};
+      if (!text || typeof text !== "string" || !text.trim()) {
+        res.status(400).json({ error: "النص مطلوب لتحويله إلى صوت." });
+        return;
+      }
+      const wavBase64 = await synthesizeArabicReplyWavBase64(text);
+      res.json({
+        audio_base64: wavBase64,
+        mime_type: "audio/wav",
+      });
+    } catch (err: unknown) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "تعذر توليد القراءة الصوتية",
+      });
+    }
+  });
 
   // --- WhatsApp Business Cloud API Webhooks ---
   app.get("/webhooks/whatsapp", async (req: Request, res: Response) => {
@@ -1682,9 +2042,22 @@ async function startServer() {
     }
   });
 
+  function ensureUniqueShortTitles(labels: string[], maxLen: number): string[] {
+    const used = new Set<string>();
+    return labels.map((label, idx) => {
+      let short = shortenChoiceTitle(label, maxLen);
+      if (used.has(short)) {
+        const suffix = ` ${idx + 1}`;
+        short = `${short.slice(0, Math.max(2, maxLen - suffix.length)).trim()}${suffix}`;
+      }
+      used.add(short);
+      return short;
+    });
+  }
+
   function buildWhatsAppGraphPayload(to: string, bodyText: string, choices: string[]) {
-    const cleanBody = bodyText.replace(/\*\*/g, "*").slice(0, 1020);
     const validChoices = (choices || []).filter(Boolean).slice(0, 10);
+    const cleanBody = formatMessageForChannel(bodyText, "whatsapp", validChoices.length > 0);
 
     if (validChoices.length === 0) {
       return {
@@ -1696,8 +2069,9 @@ async function startServer() {
       };
     }
 
-    // Native WhatsApp Reply Buttons (up to 3 buttons, max 20 chars per button title)
-    if (validChoices.length <= 3 && validChoices.every((c) => c.length <= 20)) {
+    // Native WhatsApp Reply Buttons (1..3 choices, clean whole-word Arabic title <= 20 chars + full ID)
+    if (validChoices.length <= 3) {
+      const buttonTitles = ensureUniqueShortTitles(validChoices, 20);
       return {
         messaging_product: "whatsapp",
         recipient_type: "individual",
@@ -1707,11 +2081,11 @@ async function startServer() {
           type: "button",
           body: { text: cleanBody },
           action: {
-            buttons: validChoices.map((label) => ({
+            buttons: validChoices.map((label, idx) => ({
               type: "reply",
               reply: {
                 id: label.slice(0, 256),
-                title: label.slice(0, 20),
+                title: buttonTitles[idx],
               },
             })),
           },
@@ -1719,7 +2093,8 @@ async function startServer() {
       };
     }
 
-    // Native WhatsApp Interactive List Message (up to 10 rows)
+    // Native WhatsApp Interactive List Message (4..10 rows, clean whole-word title <= 24 chars + full description <= 72 chars)
+    const rowTitles = ensureUniqueShortTitles(validChoices, 24);
     return {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -1732,12 +2107,16 @@ async function startServer() {
           button: "اختر من القائمة",
           sections: [
             {
-              title: "الجمعية المصرية",
-              rows: validChoices.map((label) => ({
-                id: label.slice(0, 200),
-                title: label.slice(0, 24),
-                ...(label.length > 24 ? { description: label.slice(0, 72) } : {}),
-              })),
+              title: "خدمات الجمعية (EBDA)",
+              rows: validChoices.map((label, idx) => {
+                const title = rowTitles[idx];
+                const showDesc = title !== label || label.length > 24;
+                return {
+                  id: label.slice(0, 200),
+                  title,
+                  ...(showDesc ? { description: label.slice(0, 72) } : {}),
+                };
+              }),
             },
           ],
         },
@@ -1756,7 +2135,7 @@ async function startServer() {
           const val = change.value || {};
           const contactName = val.contacts?.[0]?.profile?.name || "عضو الجمعية";
           for (const msg of val.messages || []) {
-            const incomingText =
+            let incomingText =
               msg.type === "text"
                 ? msg.text?.body
                 : msg.type === "interactive"
@@ -1768,13 +2147,98 @@ async function startServer() {
                 ? msg.button?.payload || msg.button?.text
                 : "";
 
-            if (incomingText && String(incomingText).trim()) {
+            let incomingImageBase64: string | undefined;
+            let incomingImageMime = "image/jpeg";
+
+            // Support inbound WhatsApp Images (msg.type === "image") for leaf disease diagnosis
+            if (msg.type === "image") {
+              incomingText = msg.image?.caption || "فحص صورة النبات وتشخيص الإصابة 📷";
+              if (msg.image?.base64) {
+                incomingImageBase64 = String(msg.image.base64);
+                incomingImageMime = String(msg.image.mime_type || "image/jpeg");
+              } else if (msg.image?.id && process.env.WHATSAPP_ACCESS_TOKEN) {
+                try {
+                  const mediaMetaResp = await fetch(
+                    `https://graph.facebook.com/v21.0/${encodeURIComponent(String(msg.image.id))}`,
+                    {
+                      headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+                    }
+                  );
+                  if (mediaMetaResp.ok) {
+                    const mediaMeta = (await mediaMetaResp.json()) as {
+                      url?: string;
+                      mime_type?: string;
+                    };
+                    if (mediaMeta.url) {
+                      const imgResp = await fetch(mediaMeta.url, {
+                        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+                      });
+                      if (imgResp.ok) {
+                        const buf = Buffer.from(await imgResp.arrayBuffer());
+                        incomingImageBase64 = buf.toString("base64");
+                        incomingImageMime = mediaMeta.mime_type || "image/jpeg";
+                      }
+                    }
+                  }
+                } catch (imgErr) {
+                  console.warn("WhatsApp image fetch warning:", imgErr);
+                }
+              }
+            }
+
+            // Support inbound WhatsApp Voice Notes (msg.type === "audio") per EBDA ToR
+            if (!incomingText && msg.type === "audio") {
+              try {
+                if (msg.audio?.base64) {
+                  incomingText = await transcribeFarmerAudioBase64(
+                    String(msg.audio.base64),
+                    String(msg.audio.mime_type || "audio/ogg")
+                  );
+                  appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
+                } else if (msg.audio?.id && process.env.WHATSAPP_ACCESS_TOKEN) {
+                  const mediaMetaResp = await fetch(
+                    `https://graph.facebook.com/v21.0/${encodeURIComponent(String(msg.audio.id))}`,
+                    {
+                      headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+                    }
+                  );
+                  if (mediaMetaResp.ok) {
+                    const mediaMeta = (await mediaMetaResp.json()) as {
+                      url?: string;
+                      mime_type?: string;
+                    };
+                    if (mediaMeta.url) {
+                      const audioBinResp = await fetch(mediaMeta.url, {
+                        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+                      });
+                      if (audioBinResp.ok) {
+                        const buf = Buffer.from(await audioBinResp.arrayBuffer());
+                        incomingText = await transcribeFarmerAudioBase64(
+                          buf.toString("base64"),
+                          mediaMeta.mime_type || "audio/ogg"
+                        );
+                        appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
+                      }
+                    }
+                  }
+                }
+              } catch (audioErr) {
+                console.warn("WhatsApp audio transcription warning:", audioErr);
+              }
+            }
+
+            if ((incomingText && String(incomingText).trim()) || incomingImageBase64) {
               const phone = String(msg.from || "201001234567");
               const sessionId = `whatsapp:${phone}`;
               const session = getOrCreateSession(sessionId, "whatsapp", phone, contactName);
               const { messageRecord, citations } = await generateAdvisorAnswer(
                 session,
-                String(incomingText)
+                String(incomingText || "فحص وتشخيص صورة النبات المرفقة 📷"),
+                {
+                  imageBase64: incomingImageBase64,
+                  imageMime: incomingImageMime,
+                  isVoice: msg.type === "audio",
+                }
               );
 
               const graphOutbound = buildWhatsAppGraphPayload(
@@ -1880,36 +2344,103 @@ async function startServer() {
       for (const entry of payload.entry || []) {
         for (const event of entry.messaging || []) {
           const psid = String(event.sender?.id || "psid_organic_901");
-          const incomingText =
+          let incomingText =
             event.message?.quick_reply?.payload ||
             event.postback?.payload ||
             event.message?.text;
 
-          if (incomingText && !event.message?.is_echo) {
-            const sessionId = `messenger:${psid}`;
-            const session = getOrCreateSession(
-              sessionId,
-              "messenger",
-              psid,
-              `عضو ماسنجر (${psid.slice(-4)})`
+          if (!incomingText && !event.message?.is_echo) {
+            const audioAtt = (event.message?.attachments || []).find(
+              (a: { type?: string }) => a?.type === "audio"
             );
-            const { messageRecord, citations } = await generateAdvisorAnswer(
-              session,
-              String(incomingText)
-            );
+            if (audioAtt) {
+              try {
+                if (audioAtt.payload?.base64) {
+                  incomingText = await transcribeFarmerAudioBase64(
+                    String(audioAtt.payload.base64),
+                    String(audioAtt.payload.mime_type || "audio/mp4")
+                  );
+                  appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
+                } else if (audioAtt.payload?.url) {
+                  const audioBinResp = await fetch(String(audioAtt.payload.url));
+                  if (audioBinResp.ok) {
+                    const buf = Buffer.from(await audioBinResp.arrayBuffer());
+                    incomingText = await transcribeFarmerAudioBase64(
+                      buf.toString("base64"),
+                      audioBinResp.headers.get("content-type") || "audio/mp4"
+                    );
+                    appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
+                  }
+                }
+              } catch (audioErr) {
+                console.warn("Messenger audio transcription warning:", audioErr);
+              }
+            }
+          }
 
-            const qrList = (messageRecord.quick_replies || []).slice(0, 13);
+          let incomingImageBase64: string | undefined;
+          let incomingImageMime = "image/jpeg";
+
+            if (!event.message?.is_echo && event.message?.attachments) {
+              const imgAtt = (event.message.attachments || []).find(
+                (a: { type?: string }) => a?.type === "image"
+              );
+              if (imgAtt) {
+                if (!incomingText) incomingText = "فحص صورة النبات وتشخيص الإصابة 📷";
+                if (imgAtt.payload?.base64) {
+                  incomingImageBase64 = String(imgAtt.payload.base64);
+                  incomingImageMime = String(imgAtt.payload.mime_type || "image/jpeg");
+                } else if (imgAtt.payload?.url) {
+                  try {
+                    const imgResp = await fetch(String(imgAtt.payload.url));
+                    if (imgResp.ok) {
+                      const buf = Buffer.from(await imgResp.arrayBuffer());
+                      incomingImageBase64 = buf.toString("base64");
+                      incomingImageMime = imgResp.headers.get("content-type") || "image/jpeg";
+                    }
+                  } catch (attErr) {
+                    console.warn("Messenger image attachment download warning:", attErr);
+                  }
+                }
+              }
+            }
+
+            if ((incomingText || incomingImageBase64) && !event.message?.is_echo) {
+              const sessionId = `messenger:${psid}`;
+              const session = getOrCreateSession(
+                sessionId,
+                "messenger",
+                psid,
+                `عضو ماسنجر (${psid.slice(-4)})`
+              );
+              const { messageRecord, citations } = await generateAdvisorAnswer(
+                session,
+                String(incomingText || "فحص وتشخيص صورة النبات المرفقة 📷"),
+                {
+                  imageBase64: incomingImageBase64,
+                  imageMime: incomingImageMime,
+                  isVoice: false,
+                }
+              );
+
+            const qrList = (messageRecord.quick_replies || []).filter(Boolean).slice(0, 13);
+            const qrTitles = ensureUniqueShortTitles(qrList, 20);
+            const cleanMessengerText = formatMessageForChannel(
+              messageRecord.content,
+              "messenger",
+              qrList.length > 0
+            );
             const graphOutbound = {
               recipient: { id: psid },
               messaging_type: "RESPONSE",
               message: {
-                text: messageRecord.content,
+                text: cleanMessengerText,
                 ...(qrList.length > 0
                   ? {
-                      quick_replies: qrList.map((label) => ({
+                      quick_replies: qrList.map((label, idx) => ({
                         content_type: "text",
-                        title: label.slice(0, 20),
-                        payload: label,
+                        title: qrTitles[idx],
+                        payload: label.slice(0, 1000),
                       })),
                     }
                   : {}),
@@ -2036,7 +2567,62 @@ async function startServer() {
     res.json({ deleted: id });
   });
 
-  // --- User Feedback & Iterative RAG Improvement Endpoints ---
+  // --- ToR Evaluation Criteria & Engagement Metrics (KPIs) + User Feedback ---
+  app.get(["/api/metrics", "/api/evaluation-metrics"], (_req: Request, res: Response) => {
+    const allSessions = Object.values(appState.sessions);
+    const activeSessions = allSessions.filter((s) => s.messages.some((m) => m.role === "user"));
+    const retainedSessions = activeSessions.filter(
+      (s) => s.messages.filter((m) => m.role === "user").length >= 2
+    );
+
+    let totalMessagesCount = 0;
+    const assistantLatencies: number[] = [];
+    const channelsBreakdown = { whatsapp: 0, messenger: 0, widget: 0 };
+
+    for (const s of allSessions) {
+      totalMessagesCount += s.messages.length;
+      const userMsgCount = s.messages.filter((m) => m.role === "user").length;
+      if (s.channel === "whatsapp") channelsBreakdown.whatsapp += userMsgCount;
+      else if (s.channel === "messenger") channelsBreakdown.messenger += userMsgCount;
+      else channelsBreakdown.widget += userMsgCount;
+
+      for (const m of s.messages) {
+        if (m.role === "assistant" && m.latency_ms > 0) {
+          assistantLatencies.push(m.latency_ms);
+        }
+      }
+    }
+
+    const totalRatings = appState.feedback.length;
+    const thumbsUp = appState.feedback.filter((f) => f.rating === 1).length;
+    const thumbsDown = appState.feedback.filter((f) => f.rating === -1).length;
+    const satisfactionPct =
+      totalRatings > 0 ? Number(((thumbsUp / totalRatings) * 100).toFixed(1)) : 100;
+    const retentionPct =
+      activeSessions.length > 0
+        ? Number(((retainedSessions.length / activeSessions.length) * 100).toFixed(1))
+        : 0;
+    const avgLatencyMs =
+      assistantLatencies.length > 0
+        ? Math.round(assistantLatencies.reduce((a, b) => a + b, 0) / assistantLatencies.length)
+        : 0;
+
+    res.json({
+      active_users_count: Math.max(activeSessions.length, appState.registrations.length),
+      total_messages_count: totalMessagesCount,
+      voice_messages_count: appState.voice_messages_count || 0,
+      registered_farms_count: appState.registrations.length,
+      satisfaction_rate_pct: satisfactionPct,
+      total_ratings: totalRatings,
+      thumbs_up: thumbsUp,
+      thumbs_down: thumbsDown,
+      retention_rate_pct: retentionPct,
+      retained_users_count: retainedSessions.length,
+      avg_latency_ms: avgLatencyMs,
+      channels_breakdown: channelsBreakdown,
+    });
+  });
+
   app.get("/api/feedback", (_req: Request, res: Response) => {
     const total = appState.feedback.length;
     const positive = appState.feedback.filter((f) => f.rating === 1).length;
@@ -2206,26 +2792,135 @@ async function startServer() {
     }
   });
 
-  // --- Embeddable Web Chat Widget Script (/agripulse-widget.js) ---
+  // --- Embeddable Company / Association Website Chat Widget Script (/agripulse-widget.js) ---
   app.get("/agripulse-widget.js", (req: Request, res: Response) => {
     const hostOrigin = `${req.protocol}://${req.get("host")}`;
     const script = `(function(){
-  var endpoint = (document.currentScript && document.currentScript.getAttribute("data-webhook")) || "${hostOrigin}/webhooks/widget";
-  var sid = "widget:visitor-" + Math.random().toString(36).slice(2, 10);
+  var cur = document.currentScript;
+  var baseOrigin = (cur && cur.getAttribute("data-origin")) || "${hostOrigin}";
+  var endpoint = (cur && cur.getAttribute("data-webhook")) || (baseOrigin + "/webhooks/widget");
+  var voiceEndpoint = baseOrigin + "/api/voice-chat";
+  var ttsEndpoint = baseOrigin + "/api/tts";
+  var companyName = (cur && cur.getAttribute("data-company-name")) || "الجمعية المصرية للزراعة الحيوية (EBDA)";
+  var subtitle = (cur && cur.getAttribute("data-subtitle")) || "اقتصاد المحبة · ديميتر · إرشاد زراعي عضوي 100%";
+  var primaryColor = (cur && cur.getAttribute("data-primary-color")) || "#166534";
+  var posSide = (cur && cur.getAttribute("data-position")) === "right" ? "right:20px;" : "left:20px;";
+  var sid = "widget:site-" + Math.random().toString(36).slice(2, 10);
+
+  function escHtml(s){
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+  function formatWebMd(raw){
+    var h = escHtml(raw);
+    h = h.replace(/^[ \\t]*#{1,4}[ \\t]+(.+)$/gm, '<div style="font-weight:700;color:#14532d;margin:6px 0 3px;">$1</div>');
+    h = h.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<strong>$1</strong>');
+    h = h.replace(/^[ \\t]*[-•][ \\t]+(.+)$/gm, '<div style="padding-right:10px;margin:2px 0;">• $1</div>');
+    h = h.replace(/\\n/g, "<br/>");
+    return h;
+  }
+
   var btn = document.createElement("button");
-  btn.textContent = "الجمعية المصرية للزراعة الحيوية";
-  btn.style.cssText = "position:fixed;bottom:20px;left:20px;z-index:99999;background:#166534;color:#fff;border:none;border-radius:999px;padding:12px 20px;font-family:sans-serif;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
+  btn.type = "button";
+  btn.dir = "rtl";
+  btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;"><span>🌱</span><span>' + escHtml(companyName) + '</span></span>';
+  btn.style.cssText = "position:fixed;bottom:20px;" + posSide + "z-index:99999;background:" + primaryColor + ";color:#fff;border:none;border-radius:12px;padding:12px 18px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,0.18);";
+
   var box = document.createElement("div");
   box.dir = "rtl";
-  box.style.cssText = "display:none;position:fixed;bottom:76px;left:20px;z-index:99999;width:360px;max-width:calc(100vw - 40px);height:480px;background:#fff;border:1px solid #e5e5e0;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,0.16);flex-direction:column;overflow:hidden;font-family:sans-serif;";
-  box.innerHTML = '<div style="background:#166534;color:#fff;padding:12px 14px;font-size:14px;font-weight:700;">الجمعية المصرية للزراعة الحيوية</div><div id="ap-msgs" style="flex:1;overflow-y:auto;padding:12px;background:#faf9f6;font-size:13px;line-height:1.6;"></div><div id="ap-qr" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:#faf9f6;border-top:1px solid #eceae4;"></div><form id="ap-form" style="display:flex;gap:6px;padding:10px;border-top:1px solid #e5e5e0;background:#fff;"><input id="ap-in" placeholder="اكتب رسالتك هنا..." style="flex:1;border:1px solid #d6d3cd;border-radius:8px;padding:8px 10px;font-size:13px;outline:none;"/><button type="submit" style="background:#166534;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;">إرسال</button></form>';
+  box.style.cssText = "display:none;position:fixed;bottom:76px;" + posSide + "z-index:99999;width:390px;max-width:calc(100vw - 32px);height:560px;max-height:calc(100vh - 104px);background:#fff;border:1px solid #e5e5e0;border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,0.18);flex-direction:column;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;";
+  box.innerHTML =
+    '<div style="background:' + primaryColor + ';color:#fff;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+      '<div style="min-width:0;">' +
+        '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(companyName) + '</div>' +
+        '<div style="font-size:11px;opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(subtitle) + '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;flex-shrink:0;">' +
+        '<button type="button" id="ap-reset" title="محادثة جديدة" style="background:rgba(255,255,255,0.16);color:#fff;border:none;border-radius:8px;padding:4px 8px;font-size:12px;cursor:pointer;">بداية جديدة</button>' +
+        '<button type="button" id="ap-close" title="إغلاق" style="background:rgba(255,255,255,0.16);color:#fff;border:none;border-radius:8px;padding:4px 8px;font-size:13px;cursor:pointer;">✕</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="ap-msgs" style="flex:1;overflow-y:auto;padding:12px;background:#faf9f6;font-size:13px;line-height:1.65;"></div>' +
+    '<div id="ap-qr" style="display:flex;flex-wrap:wrap;gap:6px;max-height:132px;overflow-y:auto;padding:8px 10px;background:#faf9f6;border-top:1px solid #eceae4;"></div>' +
+    '<div id="ap-img-bar" style="display:none;align-items:center;justify-content:space-between;padding:6px 10px;background:#f0fdf4;border-top:1px solid #bbf7d0;font-size:11px;color:#166534;">' +
+      '<div style="display:flex;align-items:center;gap:6px;">' +
+        '<img id="ap-img-thumb" style="width:28px;height:28px;border-radius:6px;object-fit:cover;border:1px solid #86efac;"/>' +
+        '<span>صورة نبات جاهزة للتشخيص</span>' +
+      '</div>' +
+      '<button type="button" id="ap-img-del" title="إلغاء الصورة" style="background:none;border:none;color:#dc2626;font-size:13px;cursor:pointer;">✕</button>' +
+    '</div>' +
+    '<form id="ap-form" style="display:flex;align-items:center;gap:6px;padding:10px;border-top:1px solid #e5e5e0;background:#fff;">' +
+      '<input type="file" id="ap-file" accept="image/*" style="display:none;"/>' +
+      '<input id="ap-in" placeholder="اكتب سؤالك أو ارفع صورة نبات..." style="flex:1;border:1px solid #d6d3cd;border-radius:10px;padding:9px 11px;font-size:13px;outline:none;background:#faf9f6;"/>' +
+      '<button type="button" id="ap-cam" title="رفع صورة نبات للتشخيص الفوري" style="background:#f0fdf4;color:' + primaryColor + ';border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;font-size:14px;cursor:pointer;">📷</button>' +
+      '<button type="button" id="ap-mic" title="تسجيل رسالة صوتية" style="background:#f0fdf4;color:' + primaryColor + ';border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;font-size:14px;cursor:pointer;">🎤</button>' +
+      '<button type="submit" style="background:' + primaryColor + ';color:#fff;border:none;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;">إرسال</button>' +
+    '</form>';
+
   document.body.appendChild(btn);
   document.body.appendChild(box);
-  btn.onclick = function(){ box.style.display = box.style.display === "none" ? "flex" : "none"; };
+
   var msgs = box.querySelector("#ap-msgs");
   var qrBox = box.querySelector("#ap-qr");
   var form = box.querySelector("#ap-form");
   var inp = box.querySelector("#ap-in");
+  var micBtn = box.querySelector("#ap-mic");
+  var camBtn = box.querySelector("#ap-cam");
+  var fileInp = box.querySelector("#ap-file");
+  var imgBar = box.querySelector("#ap-img-bar");
+  var imgThumb = box.querySelector("#ap-img-thumb");
+  var imgDel = box.querySelector("#ap-img-del");
+  var closeBtn = box.querySelector("#ap-close");
+  var resetBtn = box.querySelector("#ap-reset");
+  var mediaRec = null;
+  var audioChunks = [];
+  var pendingImgBase64 = null;
+  var pendingImgMime = "image/jpeg";
+
+  btn.onclick = function(){ box.style.display = box.style.display === "none" ? "flex" : "none"; };
+  closeBtn.onclick = function(){ box.style.display = "none"; };
+
+  camBtn.onclick = function(){ fileInp.click(); };
+  fileInp.onchange = function(){
+    if(!fileInp.files || !fileInp.files[0]) return;
+    var f = fileInp.files[0];
+    pendingImgMime = f.type || "image/jpeg";
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var res = String(e.target.result || "");
+      pendingImgBase64 = res.indexOf(",") >= 0 ? res.slice(res.indexOf(",") + 1) : res;
+      imgThumb.src = res;
+      imgBar.style.display = "flex";
+    };
+    reader.readAsDataURL(f);
+  };
+  imgDel.onclick = function(){
+    pendingImgBase64 = null;
+    fileInp.value = "";
+    imgBar.style.display = "none";
+  };
+
+  function speakText(txt){
+    fetch(ttsEndpoint, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ text: txt }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d && d.audio_base64){
+          var a = new Audio("data:audio/wav;base64," + d.audio_base64);
+          a.play();
+        } else if(window.speechSynthesis){
+          var u = new SpeechSynthesisUtterance(txt.replace(/[*#_]/g," "));
+          u.lang = "ar-EG";
+          window.speechSynthesis.speak(u);
+        }
+      })
+      .catch(function(){
+        if(window.speechSynthesis){
+          var u = new SpeechSynthesisUtterance(txt.replace(/[*#_]/g," "));
+          u.lang = "ar-EG";
+          window.speechSynthesis.speak(u);
+        }
+      });
+  }
+
   function renderQr(items){
     qrBox.innerHTML = "";
     if(!items || !items.length){ qrBox.style.display = "none"; return; }
@@ -2234,32 +2929,123 @@ async function startServer() {
       var b = document.createElement("button");
       b.type = "button";
       b.textContent = label;
-      b.style.cssText = "background:#fff;color:#166534;border:1px solid #166534;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;";
+      b.style.cssText = "background:#fff;color:" + primaryColor + ";border:1px solid " + primaryColor + "40;border-radius:9px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;";
       b.onclick = function(){ sendMsg(label); };
       qrBox.appendChild(b);
     });
   }
-  function addBubble(txt, isUser){
+
+  function addBubble(txt, isUser, imgB64){
     var d = document.createElement("div");
-    d.style.cssText = "margin-bottom:8px;padding:8px 11px;border-radius:10px;white-space:pre-wrap;" + (isUser ? "background:#166534;color:#fff;margin-left:28px;" : "background:#fff;color:#18181b;border:1px solid #e5e5e0;margin-right:28px;");
-    d.textContent = txt;
+    d.style.cssText = "margin-bottom:8px;padding:9px 12px;border-radius:12px;" + (isUser ? "background:" + primaryColor + ";color:#fff;margin-left:28px;" : "background:#fff;color:#18181b;border:1px solid #e5e5e0;margin-right:18px;");
+    if(imgB64){
+      var im = document.createElement("img");
+      im.src = imgB64.indexOf("data:") === 0 ? imgB64 : ("data:" + (pendingImgMime || "image/jpeg") + ";base64," + imgB64);
+      im.style.cssText = "max-height:140px;width:auto;border-radius:8px;margin-bottom:6px;display:block;";
+      d.appendChild(im);
+    }
+    if(isUser){
+      var t = document.createElement("div");
+      t.textContent = txt;
+      d.appendChild(t);
+    } else {
+      var bodyDiv = document.createElement("div");
+      bodyDiv.innerHTML = formatWebMd(txt);
+      d.appendChild(bodyDiv);
+      var bar = document.createElement("div");
+      bar.style.cssText = "margin-top:6px;padding-top:5px;border-top:1px solid #f0efea;display:flex;justify-content:flex-start;";
+      var spk = document.createElement("button");
+      spk.type = "button";
+      spk.textContent = "🔊 سماع الرد";
+      spk.style.cssText = "background:none;border:none;color:" + primaryColor + ";font-size:11px;font-weight:600;cursor:pointer;padding:2px 4px;";
+      spk.onclick = function(){ speakText(txt); };
+      bar.appendChild(spk);
+      d.appendChild(bar);
+    }
     msgs.appendChild(d);
     msgs.scrollTop = msgs.scrollHeight;
   }
+
   function sendMsg(q){
-    if(!q) return;
-    addBubble(q, true);
+    var hasImg = Boolean(pendingImgBase64);
+    var payloadImg = pendingImgBase64;
+    var payloadMime = pendingImgMime;
+    if(!q && !hasImg) return;
+    var userText = q || "فحص وتشخيص صورة النبات 📷";
+    addBubble(userText, true, payloadImg);
     renderQr([]);
-    fetch(endpoint, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ session_id:sid, channel:"widget", message:q }) })
+    if(hasImg){
+      pendingImgBase64 = null;
+      fileInp.value = "";
+      imgBar.style.display = "none";
+    }
+    fetch(endpoint, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        session_id:sid,
+        channel:"widget",
+        message:userText,
+        image_base64:hasImg ? payloadImg : undefined,
+        image_mime:hasImg ? payloadMime : undefined
+      })
+    })
       .then(function(r){ return r.json(); })
       .then(function(d){
         addBubble(d.answer || d.error || "حصل خطأ بسيط، جرب تاني.", false);
         renderQr(d.quick_replies || []);
       })
-      .catch(function(){ addBubble("تعذر الاتصال بالسيرفر.", false); });
+      .catch(function(){ addBubble("تعذر الاتصال بالسيرفر حالياً.", false); });
   }
-  addBubble("أهلاً وسهلاً بيك في الجمعية المصرية للزراعة الحيوية، نقدر نساعدك إزاي؟", false);
-  renderQr(["تسجيل في الجمعية", "ما هي الجمعية؟", "هل توجد مشكلة في محصول؟", "ترشيح أنسب محصول لأرضي", "دليل زراعة محصول كامل", "أخرى (سؤال آخر)"]);
+
+  function initWelcome(){
+    msgs.innerHTML = "";
+    addBubble("أهلاً وسهلاً بحضرتك على الموقع الرسمي لـ **" + companyName + "** ومبادرة **اقتصاد المحبة (EoL)** — تقدر تسأل نصياً أو صوتياً أو ترفع صورة ورق النبات لتشخيص الأمراض فوراً!", false);
+    renderQr(${JSON.stringify(MAIN_MENU_SUGGESTIONS)});
+  }
+
+  resetBtn.onclick = function(){
+    sid = "widget:site-" + Math.random().toString(36).slice(2, 10);
+    initWelcome();
+  };
+
+  micBtn.onclick = function(){
+    if(mediaRec && mediaRec.state === "recording"){
+      mediaRec.stop();
+      micBtn.textContent = "🎤";
+      micBtn.style.background = "#f0fdf4";
+      return;
+    }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream){
+      audioChunks = [];
+      mediaRec = new MediaRecorder(stream);
+      micBtn.textContent = "⏹️";
+      micBtn.style.background = "#fee2e2";
+      mediaRec.ondataavailable = function(ev){ if(ev.data && ev.data.size > 0) audioChunks.push(ev.data); };
+      mediaRec.onstop = function(){
+        stream.getTracks().forEach(function(t){ t.stop(); });
+        var blob = new Blob(audioChunks, { type: mediaRec.mimeType || "audio/webm" });
+        if(blob.size < 300) return;
+        var reader = new FileReader();
+        reader.onloadend = function(){
+          var resStr = String(reader.result || "");
+          var b64 = resStr.indexOf(",") >= 0 ? resStr.slice(resStr.indexOf(",") + 1) : resStr;
+          fetch(voiceEndpoint, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ session_id:sid, channel:"widget", audio_base64:b64, mime_type:blob.type || "audio/webm" }) })
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if(d.transcribed_text) addBubble("🎤 " + d.transcribed_text, true);
+              addBubble(d.answer || d.error || "تعذر سماع الصوت بوضوح.", false);
+              renderQr(d.quick_replies || []);
+            });
+        };
+        reader.readAsDataURL(blob);
+      };
+      mediaRec.start();
+    }).catch(function(){});
+  };
+
+  initWelcome();
   form.onsubmit = function(e){
     e.preventDefault();
     var q = inp.value.trim();

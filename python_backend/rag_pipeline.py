@@ -16,7 +16,7 @@ from .config import settings
 
 
 class GeminiGenAIEmbeddingFunction(EmbeddingFunction[Documents]):
-    """Official google-genai SDK embedding adapter for ChromaDB free-tier collections."""
+    """Official google-genai SDK embedding adapter for ChromaDB vector collections."""
 
     def __init__(self, client: genai.Client, model_name: str = "gemini-embedding-2-preview") -> None:
         self._client = client
@@ -24,22 +24,28 @@ class GeminiGenAIEmbeddingFunction(EmbeddingFunction[Documents]):
 
     def __call__(self, input: Documents) -> Embeddings:
         embeddings: Embeddings = []
-        for doc in input:
+        batch_size = 20
+        for i in range(0, len(input), batch_size):
+            batch = list(input[i : i + batch_size])
             response = self._client.models.embed_content(
                 model=self._model_name,
-                contents=doc,
+                contents=batch,
             )
-            embeddings.append(list(response.embeddings[0].values))
+            for emb in response.embeddings or []:
+                embeddings.append(list(emb.values))
         return embeddings
 
 
 class AgronomyRAGPipeline:
-    """Manages multi-format local document ingestion (including multi-sheet Excel), external APIs, and retrieval."""
+    """Manages Google Sheets rows, local CSV/XLSX/PDF ingestion, ChromaDB embeddings, and semantic retrieval."""
 
-    def __init__(self, genai_client: genai.Client) -> None:
+    def __init__(self, genai_client: genai.Client, in_memory: bool = False) -> None:
         self.genai_client = genai_client
-        Path(settings.chroma_persist_dir).mkdir(parents=True, exist_ok=True)
-        self.chroma_client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
+        if in_memory:
+            self.chroma_client = chromadb.EphemeralClient()
+        else:
+            Path(settings.chroma_persist_dir).mkdir(parents=True, exist_ok=True)
+            self.chroma_client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
         self.embedding_fn = GeminiGenAIEmbeddingFunction(
             client=genai_client,
             model_name=settings.embedding_model,

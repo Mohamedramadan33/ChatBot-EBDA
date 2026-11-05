@@ -1,28 +1,57 @@
-# AgriPulse RAG — Python FastAPI + `google-genai` + ChromaDB Backend
+# EBDA Organic & Biodynamic Chatbot — Modular Python (`google-genai` + `ChromaDB` + `Google Sheets` + `FastAPI` + `Streamlit`)
 
-Zero-infrastructure agricultural & agribusiness advisory backend powered by the official **`google-genai`** SDK (`gemini-2.5-flash` + `gemini-embedding-2-preview`), **ChromaDB** persistent local vector storage, **SQLite** session & feedback memory, external live agricultural API connectors, and **FastAPI** multi-channel webhooks.
+Official modular backend for **الجمعية المصرية للزراعة الحيوية (EBDA — Egyptian Biodynamic Association)** & **Economy of Love (EoL)** certification under the **SI/EoL** German-Egyptian project (BMZ, bbw gGmbH, sequa gGmbH).
 
-## 1. Quick Start (Zero Infrastructure Cost)
+Built on the official **`google-genai`** SDK (`gemini-2.5-flash` + `gemini-embedding-2-preview`), **`chromadb`** local/in-memory vector store, real-time **Google Sheets** dynamic sync (`gspread` / `google-api-python-client` / shared CSV), local **CLI + Streamlit** testing interfaces, and **FastAPI** webhooks for Meta (WhatsApp Cloud API, Facebook Messenger) and website chat widgets.
+
+## Covered ToR Knowledge Modules
+- **7 Core Organic & Biodynamic Topics** (General & Crop-Specific across 67 Egyptian crops):
+  1. Environmental needs (Soil Type, Light, Heat, Moisture)
+  2. Seeds & Planting (Seed rate/feddan, Seedlings, Planting practices, Land preparation)
+  3. Irrigation (Methods & costs, Water requirements, Salinity)
+  4. Fertilization (Compost, Liquid bio-fertilizers, Certified input suppliers)
+  5. Bio Control (Pests & diseases, Biological control, Weed management)
+  6. Harvesting (Harvesting methods & dates)
+  7. Post-harvest treatments (Processing, Transportation, Storage, Marketing & EoL/DEMETER)
+- **11 Official FAQs**: Biodynamic farming, Weed management, Biological control, Certified organic input sources, Organic marketing, High-efficiency compost production, Permitted irrigation water sources, Required irrigation water lab tests, Liquid bio-fertilizers, Egyptian seasonal planting guidelines, and Economy of Love (EoL) Carbon Credits.
+
+## 1. Installation & Environment Setup
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r python_backend/requirements.txt
 
-export GEMINI_API_KEY="your_free_tier_gemini_api_key"
-export WHATSAPP_VERIFY_TOKEN="agripulse_wa_verify_2026"
-export MESSENGER_VERIFY_TOKEN="agripulse_fb_verify_2026"
+export GEMINI_API_KEY="your_gemini_api_key"
+# Optional for private Google Sheets via Service Account (gspread):
+# export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service_account.json"
+```
 
-# Generate sample agronomy PDF (if not already in ./data) and launch FastAPI
-python3 python_backend/generate_sample_pdf.py
+## 2. Local Testing Interfaces (Streamlit & CLI)
+
+### Option A — Interactive Arabic Streamlit UI
+```bash
+streamlit run python_backend/streamlit_app.py
+```
+
+### Option B — Local CLI Tester (with optional live Google Sheet URL/ID)
+```bash
+python3 -m python_backend.cli_tester --sheet-url "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
+```
+
+## 3. Multi-Channel FastAPI Server (WhatsApp, Messenger, Website Widget)
+
+```bash
 uvicorn python_backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-## 2. Architecture Overview
+- `POST /api/google-sheets/sync`: Real-time Google Sheets sync into ChromaDB (`gspread`, `google-api-python-client`, or shared link).
+- `POST /api/knowledge/query`: Direct ChromaDB vector retrieval inspection.
+- `POST /api/chat` & `POST /webhooks/widget`: Website chat widget RAG endpoint.
+- `GET / POST /webhooks/whatsapp`: Meta WhatsApp Business Cloud API verification & inbound webhook.
+- `GET / POST /webhooks/messenger`: Facebook Messenger Platform verification & inbound webhook.
+- `GET / POST /api/feedback`: Farmer satisfaction feedback & RAG improvement loop.
 
-- **`config.py`**: Environment-driven settings defaulting to free-tier `gemini-2.5-flash` and `gemini-embedding-2-preview`.
-- **`rag_pipeline.py`**: `chromadb.PersistentClient` with cosine similarity (`hnsw:space="cosine"`), custom `GeminiGenAIEmbeddingFunction` batching embeddings cleanly within free-tier RPM limits, and native parsers for `.pdf` (`pypdf`), `.csv` (`csv.DictReader`), and `.json` protocols.
-- **`external_connectors.py`**: Live connectors for **Open-Meteo Agricultural Weather** (temperature, precipitation, soil moisture, FAO Penman-Monteith $ET_0$), **OpenWeatherMap**, and **ISRIC SoilGrids v2.0** public soil databases using deterministic ChromaDB chunk IDs (`dyn_<sha256>`) to overwrite stale telemetry without vector bloat.
-- **`persona.py`**: Strict zero-fluff Senior Agronomist & Agribusiness Economist system prompt enforcing `[Source: filename]` citations, SI/commercial units (`kg/ha`, `t/ha`, `USD/ha`, breakeven yields), and channel-aware formatting.
-- **`session_store.py`**: Local SQLite persistence for multi-channel grower profiles (`sessions`), sliding-window `google.genai.types.Content` history (`messages`), and user thumbs-up/down ratings + chunk lineage (`feedback`).
-- **`channels.py` & `main.py`**: Webhook verification (`GET`) and event ingestion (`POST`) for **WhatsApp Business Cloud API** (`/webhooks/whatsapp`), **Facebook Messenger** (`/webhooks/messenger`), and the **Website Widget** (`/webhooks/widget`).
+## 4. Maintenance Guide
+- **Updating Crop & Input Data**: Sync updated Google Sheets directly via `POST /api/google-sheets/sync` or drop updated `.csv`/`.md`/`.pdf` guides into `data/` (`ebda_tor_knowledge_base.md`).
+- **Monitoring Quality**: Review farmer thumbs-up/down ratings in `/api/feedback` and promote verified agronomic answers into ChromaDB.

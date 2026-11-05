@@ -25,11 +25,21 @@ export interface FarmContext {
 export type FlowUiMode = "default" | "whatsapp_buttons" | "whatsapp_list";
 
 export interface SessionFlowState {
-  mode: "idle" | "register" | "about" | "crop_flow" | "smart_advisor" | "general_ai";
+  mode:
+    | "idle"
+    | "register"
+    | "about"
+    | "topics_hub"
+    | "faq"
+    | "crop_flow"
+    | "smart_advisor"
+    | "general_ai";
   step?: string;
   crop_submode?: "problem" | "guide";
   category_filter?: string;
   category_page?: number;
+  faq_page?: number;
+  pending_general_topic_id?: string;
   gov_region_id?: string;
   pending_fuzzy_governorate?: string;
   pending_fuzzy_detail?: string;
@@ -45,6 +55,25 @@ export interface SessionFlowState {
   };
 }
 
+export interface EvaluationMetricsOverview {
+  active_users_count: number;
+  total_messages_count: number;
+  voice_messages_count: number;
+  registered_farms_count: number;
+  satisfaction_rate_pct: number;
+  total_ratings: number;
+  thumbs_up: number;
+  thumbs_down: number;
+  retention_rate_pct: number;
+  retained_users_count: number;
+  avg_latency_ms: number;
+  channels_breakdown: {
+    whatsapp: number;
+    messenger: number;
+    widget: number;
+  };
+}
+
 export interface ChatMessageRecord {
   message_id: string;
   session_id: string;
@@ -55,6 +84,10 @@ export interface ChatMessageRecord {
   model_used?: string;
   quick_replies?: string[];
   ui_mode?: FlowUiMode;
+  image_base64?: string;
+  image_mime?: string;
+  is_voice?: boolean;
+  audio_url?: string;
   created_at: string;
 }
 

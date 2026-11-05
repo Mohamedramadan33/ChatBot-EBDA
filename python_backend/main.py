@@ -1,9 +1,11 @@
 """AgriPulse FastAPI Application: Gemini 2.5 Flash + ChromaDB RAG + Multi-Channel Webhooks."""
+import base64
 from contextlib import asynccontextmanager
+import re
 import time
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
@@ -18,7 +20,11 @@ from .channels import (
 )
 from .config import settings
 from .external_connectors import sync_isric_soilgrids_profile, sync_open_meteo_ag_weather
-from .persona import ADVISOR_SYSTEM_INSTRUCTION, build_rag_augmented_prompt
+from .persona import (
+    ADVISOR_SYSTEM_INSTRUCTION,
+    build_rag_augmented_prompt,
+    format_message_for_channel,
+)
 from .rag_pipeline import AgronomyRAGPipeline
 from .session_store import SessionAndFeedbackStore
 
@@ -50,10 +56,12 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     session_id: str = Field(default="widget:default")
-    message: str
+    message: str = Field(default="")
     channel: str = Field(default="widget")
     external_user_id: str = Field(default="web-visitor")
     farm_context: dict[str, Any] | None = None
+    image_base64: str | None = None
+    image_mime: str = Field(default="image/jpeg")
 
 
 class FeedbackRequest(BaseModel):
@@ -83,6 +91,8 @@ async def run_rag_advisor_turn(
     channel: str,
     external_user_id: str,
     context_patch: dict[str, Any] | None = None,
+    image_base64: str | None = None,
+    image_mime: str = "image/jpeg",
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
     session = store.get_or_create_session(session_id, channel=channel, external_user_id=external_user_id)
@@ -99,7 +109,18 @@ async def run_rag_advisor_turn(
         channel=channel,
     )
 
-    contents = [*prior_history, types.Content(role="user", parts=[types.Part.from_text(text=augmented_prompt)])]
+    user_parts: list[Any] = []
+    if image_base64:
+        clean_b64 = re.sub(r"^data:[^;]+;base64,", "", image_base64).strip()
+        try:
+            raw_bytes = base64.b64decode(clean_b64)
+            user_parts.append(types.Part.from_bytes(data=raw_bytes, mime_type=image_mime))
+            augmented_prompt += "\n\n[فحص وتشخيص صورة نبات مرفقة 📷]: حدد اسم المحصول وشخص أي أمراض أو آفات عضوياً 100% بالعامية المصرية."
+        except Exception:
+            pass
+
+    user_parts.append(types.Part.from_text(text=augmented_prompt))
+    contents = [*prior_history, types.Content(role="user", parts=user_parts)]
     answer_text = ""
     last_exc: Exception | None = None
     for candidate_model in [settings.generation_model, "gemini-flash-latest", "gemini-3.8-flash", "gemini-3.1-flash-lite"]:
@@ -122,6 +143,7 @@ async def run_rag_advisor_turn(
                 raise
     if not answer_text and last_exc:
         raise last_exc
+    answer_text = format_message_for_channel(answer_text, channel=channel)
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
     store.append_message(session_id=session_id, role="user", content=user_message)
@@ -143,17 +165,32 @@ async def run_rag_advisor_turn(
     }
 
 
+@app.get("/api/health")
+async def health_check() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "generation_model": settings.generation_model,
+        "embedding_model": settings.embedding_model,
+        "collection_count": rag_pipeline.collection.count(),
+    }
+
+
 @app.post("/api/chat")
 @app.post("/webhooks/widget")
 async def widget_chat_endpoint(req: ChatRequest) -> dict[str, Any]:
-    if not req.message.strip():
-        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    has_text = bool(req.message and req.message.strip())
+    has_img = bool(req.image_base64 and req.image_base64.strip())
+    if not has_text and not has_img:
+        raise HTTPException(status_code=400, detail="يرجى كتابة سؤالك أو إرفاق صورة النبات للفحص.")
+    user_query = req.message.strip() if has_text else "فحص وتشخيص صورة نبات مرفقة 📷"
     return await run_rag_advisor_turn(
         session_id=req.session_id,
-        user_message=req.message,
+        user_message=user_query,
         channel=req.channel,
         external_user_id=req.external_user_id,
         context_patch=req.farm_context,
+        image_base64=req.image_base64,
+        image_mime=req.image_mime,
     )
 
 
@@ -256,18 +293,34 @@ class GoogleSheetSyncRequest(BaseModel):
     gid: str = "0"
 
 
+class VectorQueryRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+
+@app.post("/api/knowledge/query")
+async def query_chromadb_endpoint(req: VectorQueryRequest) -> dict[str, Any]:
+    hits = rag_pipeline.retrieve(req.query, top_k=req.top_k)
+    return {"query": req.query, "results": hits}
+
+
 @app.post("/api/google-sheets/sync")
 async def sync_google_sheet_endpoint(
     req: GoogleSheetSyncRequest,
-    authorization: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    """Sync crop rows from Google Sheets (via OAuth Bearer token or shared sheet link) into ChromaDB."""
-    from .google_sheets_connector import sync_google_sheet_oauth, sync_public_google_sheet_csv
+    """Dynamically fetch live Google Sheets rows (gspread / google-api-python-client / CSV) into ChromaDB."""
+    from .google_sheets_connector import sync_google_sheet_live
 
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.replace("Bearer ", "", 1).strip()
-        return await sync_google_sheet_oauth(rag_pipeline, req.spreadsheet_url, token)
-    return await sync_public_google_sheet_csv(rag_pipeline, req.spreadsheet_url, req.gid)
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    return await sync_google_sheet_live(
+        rag=rag_pipeline,
+        spreadsheet_url_or_id=req.spreadsheet_url,
+        bearer_token=token,
+        gid=req.gid,
+    )
 
 
 @app.post("/api/feedback/promote")
