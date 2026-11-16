@@ -6,6 +6,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import inspect
 import io
 import json
 import logging
@@ -2585,11 +2586,33 @@ def gradio_registrations_table() -> list[list[str]]:
     ]
 
 
-def build_gradio_ui() -> gr.Blocks:
+def build_gradio_ui() -> tuple[gr.Blocks, str, Any]:
     custom_css = """
     .rtl-wrap { direction: rtl; text-align: right; font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif; }
     """
-    with gr.Blocks(title="AgriPulse — المستشار الزراعي الحيوي (EBDA)", css=custom_css, theme=gr.themes.Soft(primary_hue="emerald")) as blocks:
+    app_theme = gr.themes.Soft(primary_hue="emerald")
+    blocks_kwargs: dict[str, Any] = {"title": "AgriPulse — المستشار الزراعي الحيوي (EBDA)"}
+    blocks_params = inspect.signature(gr.Blocks.__init__).parameters
+    if "css" in blocks_params:
+        blocks_kwargs["css"] = custom_css
+    if "theme" in blocks_params:
+        blocks_kwargs["theme"] = app_theme
+
+    chatbot_kwargs: dict[str, Any] = {
+        "value": [
+            {
+                "role": "assistant",
+                "content": "أهلاً وسهلاً بحضرتك في **المستشار الزراعي الحيوي الذكي (EBDA & Economy of Love)** 🌿\nاختر الخدمة من الأزرار بالأسفل أو اكتب سؤالك أو ارفع صورة النبات للتشخيص العضوي 100%:",
+            }
+        ],
+        "height": 440,
+        "rtl": True,
+        "label": "المحادثة التفاعلية",
+    }
+    if "type" in inspect.signature(gr.Chatbot.__init__).parameters:
+        chatbot_kwargs["type"] = "messages"
+
+    with gr.Blocks(**blocks_kwargs) as blocks:
         session_state = gr.State(value=lambda: f"gradio:{uuid.uuid4().hex[:10]}")
         gr.Markdown(
             "<div class='rtl-wrap'>"
@@ -2606,18 +2629,7 @@ def build_gradio_ui() -> gr.Blocks:
             )
             reset_btn = gr.Button("🔄 محادثة جديدة", variant="secondary")
 
-        chatbot = gr.Chatbot(
-            type="messages",
-            value=[
-                {
-                    "role": "assistant",
-                    "content": "أهلاً وسهلاً بحضرتك في **المستشار الزراعي الحيوي الذكي (EBDA & Economy of Love)** 🌿\nاختر الخدمة من الأزرار بالأسفل أو اكتب سؤالك أو ارفع صورة النبات للتشخيص العضوي 100%:",
-                }
-            ],
-            height=440,
-            rtl=True,
-            label="المحادثة التفاعلية",
-        )
+        chatbot = gr.Chatbot(**chatbot_kwargs)
 
         with gr.Row():
             quick_btns = [
@@ -2671,11 +2683,18 @@ def build_gradio_ui() -> gr.Blocks:
         loc_btn.click(gradio_send_location, inputs=[lat_in, lon_in, loc_label_in, channel_dd, session_state, chatbot], outputs=[chatbot])
         refresh_reg_btn.click(gradio_registrations_table, outputs=[reg_df])
 
-    return blocks
+    return blocks, custom_css, app_theme
 
 
-demo = build_gradio_ui()
-app = gr.mount_gradio_app(app, demo, path="/")
+demo, _custom_css, _app_theme = build_gradio_ui()
+_mount_kwargs: dict[str, Any] = {}
+_mount_params = inspect.signature(gr.mount_gradio_app).parameters
+if "css" in _mount_params:
+    _mount_kwargs["css"] = _custom_css
+if "theme" in _mount_params:
+    _mount_kwargs["theme"] = _app_theme
+
+app = gr.mount_gradio_app(app, demo, path="/", **_mount_kwargs)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT") or os.environ.get("GRADIO_SERVER_PORT") or "7860")
