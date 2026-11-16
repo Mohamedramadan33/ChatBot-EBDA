@@ -1,12 +1,31 @@
+# Dependencies & Build Artifacts
 node_modules/
 build/
 dist/
 coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
-.local_store/
-.venv/
+
+# Python Cache & Virtual Environments
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Environment Variables & Secrets (NEVER commit .env)
+.env
+.env.*
+!.env.example
+*service-account*.json
+*credentials*.json
+
+# Local Storage, Chroma Vector DB & SQLite
+.local_store/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs & OS Files
+*.log
+.DS_Store
+Thumbs.db
