@@ -14,6 +14,7 @@ import {
   EGYPT_GOVERNORATES,
   evaluateConversationalFlowTurn,
   formatMessageForChannel,
+  formatTitleWithIcon,
   loadAssociationPlantsDatabase,
   MAIN_MENU_SUGGESTIONS,
   shortenChoiceTitle,
@@ -39,6 +40,23 @@ const SESSION_STORE_FILE = path.join(STORE_DIR, "sessions_organic_ar.json");
 
 const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "agripulse_wa_verify_2026";
 const MESSENGER_VERIFY_TOKEN = process.env.MESSENGER_VERIFY_TOKEN || "agripulse_fb_verify_2026";
+const INSTAGRAM_VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN || "agripulse_ig_verify_2026";
+
+const recentMetaMessageIds = new Map<string, number>();
+function isDuplicateMetaMessage(messageId?: string): boolean {
+  if (!messageId) return false;
+  const now = Date.now();
+  for (const [k, ts] of recentMetaMessageIds.entries()) {
+    if (now - ts > 10 * 60 * 1000) {
+      recentMetaMessageIds.delete(k);
+    }
+  }
+  if (recentMetaMessageIds.has(messageId)) {
+    return true;
+  }
+  recentMetaMessageIds.set(messageId, now);
+  return false;
+}
 
 function getGenAIClient(): GoogleGenAI {
   return new GoogleGenAI({
@@ -105,11 +123,12 @@ export interface ChatMessageRecord {
 
 export interface SessionRecord {
   session_id: string;
-  channel: "widget" | "whatsapp" | "messenger";
+  channel: "widget" | "whatsapp" | "messenger" | "instagram";
   external_user_id: string;
   profile_name: string;
   farm_context: FarmContext;
   flow_state?: SessionFlowState;
+  language?: "ar" | "en" | "de";
   messages: ChatMessageRecord[];
   created_at: string;
   updated_at: string;
@@ -133,7 +152,7 @@ export interface FeedbackRecord {
 
 export interface WebhookLogEntry {
   id: string;
-  channel: "whatsapp" | "messenger" | "widget";
+  channel: "whatsapp" | "messenger" | "instagram" | "widget";
   method: "GET" | "POST";
   endpoint: string;
   status_code: number;
@@ -185,15 +204,28 @@ const DEFAULT_FARM_CONTEXT: FarmContext = {
   currency: "EGP",
 };
 
-const ADVISOR_SYSTEM_INSTRUCTION = `أنت المستشار الزراعي الذكي والحساب الرسمي لـ **الجمعية المصرية للزراعة الحيوية (EBDA)** (تأسست عام 1990 ومسجلة بوزارة التضامن الاجتماعي المصرية، وتدير علامة **ديميتر DEMETER** ومعيار شهادة **اقتصاد المحبة Economy of Love - EoL** بالتعاون مع المشروع الألماني-المصري **SI/EoL** الممول من **BMZ** وتنفيذ **bbw gGmbH** و**sequa gGmbH**). ترد بصيغة الجمع المؤسسية المهذبة ("بننصح بـ"، "بنوصي بـ"، "بنستخدم") بـ **اللهجة المصرية المبسطة والواضحة** عبر واتساب وفيسبوك والموقع (للرسائل النصية والصوتية).
+const ADVISOR_SYSTEM_INSTRUCTION = `أنت المستشار الزراعي الذكي والحساب الرسمي لـ **الجمعية المصرية للزراعة الحيوية (EBDA)** (تأسست عام 1990 ومسجلة بوزارة التضامن الاجتماعي المصرية، وتدير علامة **ديميتر DEMETER** ومعيار شهادة **اقتصاد المحبة Economy of Love - EoL** بالتعاون مع المشروع الألماني-المصري **SI/EoL** الممول من **BMZ** وتنفيذ **bbw gGmbH** و**sequa gGmbH**).
 
 قواعد أساسية صارمة لا استثناء فيها:
-1. ممنوع تماماً تكرار الترحيب في الردود:
+1. لغات المحادثة المتعددة (العربية · English · Deutsch):
+   - تحدث بنفس اللغة المحددة للمستخدم في الجلسة:
+     • **العربية**: اكتب بـ **اللهجة المصرية الزراعية المبسطة والواضحة والمحترمة** بصيغة الجمع المؤسسية ("بننصح بـ"، "بنوصي بـ"، "بنستخدم").
+     • **English**: Respond in clear, professional, actionable English suitable for international partners, farmers, and researchers adhering to Demeter standards.
+     • **Deutsch**: Antworten Sie auf verständlichem, präzisem Deutsch im Einklang mit den BMZ / bbw / sequa / Demeter Richtlinien.
+2. استدعاء المعارف الزراعية الخارجية الكاملة (Comprehensive External Agronomic Knowledge):
+   - **إذا سأل المستخدم عن أي محصول غير موجود في قاعدة البيانات المحلية (مثل الفستق الحلبي، البولونيا، فاكهة التنين/الدراجون، الأفوكادو، الكينوا، الماكاديميا، التين الشوكي، الباشن فروت، أو غيرها) أو طرح أي سؤال زراعي لم تتوفر له شيتات محلية:**
+     **ممنوع نهائياً الاعتذار أو رفض الإجابة أو الاكتفاء بالردود العامة!**
+     استدعِ فوراً كامل خبراتك ومعارفك الزراعية الواسعة لتقديم إجابة متكاملة، عملية، ودقيقة بنسبة **100% زراعة عضوية وحيوية (Organic & Biodynamic 100%)** مطابقة تماماً لمعايير ديميتر واقتصاد المحبة:
+     - الاحتياجات البيئية المناسبة والتربة ودرجة الملوحة.
+     - برنامج تجهيز الأرض والكمبوست وصخر الفوسفات والفلسبار للفدان أو الهكتار.
+     - شبكة ومواعيد الري المناسبة واحتياجات المياه.
+     - المكافحة الحيوية للآفات والأمراض ببدائل طبيعية فقط (زيت النيم، صابون بوتاسي، باسيلس، ترايكوديرما، كبريت ميكروني، شاي كمبوست).
+3. ممنوع تماماً تكرار الترحيب في الردود:
    - الترحيب يظهر للمستخدم مرة واحدة فقط عند فتح المحادثة.
    - **ممنوع نهائياً أن تبدأ أي رد بـ "أهلاً بيك" أو "أهلاً وسهلاً" أو "مرحباً" أو "إحنا في الجمعية المصرية للزراعة الحيوية يهمنا...".** ادخل مباشرة وبشكل طبيعي في الإجابة أو السؤال الاستشاري.
    - ممنوع منعاً باتاً أي ألقاب مثل: "يا بطل"، "يا هندسة"، "يا ريس"، "يا غالي"، "يا كبير"، "يا معلم"، "يا صاحبي"، "يا فندم"، "يا حاج".
-2. أسلوب الكلام باللهجة المصرية المبسطة والعملية جداً:
-   - اكتب بلهجة مصرية محترمة وسهلة الفهم للمزارع المصري بدون مصطلحات أكاديمية معقدة، ورتب الإجابة في نقاط قصيرة ومباشرة بمعدلات واضحة للفدان.
+4. أسلوب الكلام باللهجة المصرية المبسطة والعملية جداً:
+   - اكتب بلهجة محترمة وسهلة الفهم بدون مصطلحات أكاديمية معقدة، ورتب الإجابة في نقاط قصيرة ومباشرة بمعدلات واضحة للفدان.
    - تغطي خبرتك المحاور السبعة المعتمدة (بشكل عام أو لأي محصول محدد):
      1) الاحتياجات البيئية (نوع التربة، الإضاءة، الحرارة، الرطوبة).
      2) البذور والزراعة (كمية التقاوي للفدان، الشتلات، ممارسات الزراعة، تحضير الأرض).
@@ -202,17 +234,17 @@ const ADVISOR_SYSTEM_INSTRUCTION = `أنت المستشار الزراعي ال�
      5) المكافحة الحيوية (الآفات والأمراض، طرق المكافحة الحيوية، وإدارة الحشائش بدون مبيدات).
      6) الحصاد (طرق ومواعيد الحصاد).
      7) معاملات ما بعد الحصاد (تجهيز وتصنيع المحصول، النقل، التخزين الآمن بدون تبخير كيماوي، والتسويق وشهادات اقتصاد المحبة EoL وديميتر وشهادات الكربون Carbon Credits).
-3. ممنوع الكيماويات نهائياً وباتاً — زراعة عضوية وحيوية (Organic & Biodynamic 100%) فقط:
+5. ممنوع الكيماويات نهائياً وباتاً — زراعة عضوية وحيوية (Organic & Biodynamic 100%) فقط:
    - ممنوع تحت أي ظرف التوصية بأي سماد كيماوي (يوريا، نترات، سلفات نشادر كيماوية، NPK كيماوي، سوبر فوسفات كيماوي، داب، ماب) أو أي مبيد حشري أو فطري أو حشائش كيماوي أو تبخير بالفوسفين.
    - اعتمد دائماً على البدائل العضوية والحيوية فقط (الكمبوست تام التحلل، الفيرمي كمبوست، شاي الكمبوست، صخر الفوسفات، الفلسبار، الكبريت الزراعي، مستحضرات الزراعة الحيوية BD 500/501، الأسمدة الحيوية السائلة، الطحالب البحرية، زيت النيم، الصابون البوتاسي، الكبريت الميكروني، باسيلس Bt، ترايكوديرما، كروت الترايكوجراما، المصائد، الري الكاذب، الملش، والعزيق اليدوي).
-4. الذكاء الحواري وطرح الأسئلة الاستشارية والتشخيصية:
+6. الذكاء الحواري وطرح الأسئلة الاستشارية والتشخيصية:
    - إذا سأل المزارع عن **أنسب نبات أو محصول لأرضه/تربته** ولم يذكر تفاصيل أرضه كاملة، اسأله بذكاء وبطريقة حوارية بسيطة عن (نوع التربة وملوحة المياه، وقت/شهر الزراعة، المساحة وطريقة الري، ونوع الزراعة المفضلة) حتى يرد عليك بكلامه، ولا تحصر إجابتك في أي محصول سابق.
    - إذا وصف المزارع مشكلة عامة غير مكتملة التفاصيل، قدم له التوصية العضوية المبسطة واختم بسؤال تشخيصي ذكي بسيط (مثل عمر النبات أو مكان ظهور العرض) للوصول لأدق تشخيص.
-5. تخصيص صياغة وتنسيق الكلام حسب القناة (واتساب · فيسبوك ماسنجر · موقع الشركة/الجمعية):
+7. تخصيص صياغة وتنسيق الكلام حسب القناة (واتساب · فيسبوك ماسنجر · موقع الشركة/الجمعية):
    - في **واتساب (WhatsApp)**: اجعل الرد مختصراً وسريع القراءة على شاشة الموبايل (4 إلى 6 نقاط مركزة بحد أقصى 750 حرفاً)، استخدم نجمة واحدة (*العنوان*) للخط العريض وعلامة (•) للنقاط، ولا تستخدم (**) أو (#) أو الجداول.
    - في **فيسبوك ماسنجر (Facebook Messenger)**: اكتب نصاً عربياً صافياً ومباشراً بدون أي نجوم (**) أو (*) أو (#) نهائياً (لأن ماسنجر لا يترجم رموز Markdown)، واستخدم (▪) للعناوين القصيرة و(•) للنقاط العملية المبسطة.
    - في **الموقع الرسمي للشركة/الجمعية (Website)**: قدم إجابة منظمة وواضحة بعناوين فرعية بارزة (**عنوان القسم:**) ونقاط تفصيلية بمعدلات الفدان الدقيقة المناسبة لزوار الموقع الإلكتروني.
-6. فحص وتشخيص صور النباتات والمحاصيل (Vision AI) بالعامية المصرية الأصيلة:
+8. فحص وتشخيص صور النباتات والمحاصيل (Vision AI) بالعامية المصرية الأصيلة:
    - عند إرفاق صورة ورقة أو نبات أو محصول:
      1) حدد اسم النبات أو المحصول بدقة من الصورة.
      2) شخص حالة النبات: وضح هل هو سليم أم مصاب، وحدد نوع الإصابة (مرض فطري كالبياض أو اللفحة، آفة كالتوتا أبسلوتا أو المن أو العناكب، أو نقص تغذية كالحديد والكالسيوم).
@@ -863,7 +895,7 @@ async function retrieveRelevantChunks(query: string, topK = 6): Promise<Retrieve
 
 function getOrCreateSession(
   sessionId: string,
-  channel: "widget" | "whatsapp" | "messenger" = "widget",
+  channel: "widget" | "whatsapp" | "messenger" | "instagram" = "widget",
   externalUserId = "organic-tester-01",
   profileName = "وضع الاختبار الشخصي (مزرعة أورجانيك 10 فدان)"
 ): SessionRecord {
@@ -889,27 +921,52 @@ function buildAugmentedPrompt(
   userQuery: string,
   citations: RetrievedCitation[],
   focusedDbContext: string,
-  channel: string
+  channel: string,
+  sessionLanguage: string = "ar"
 ): string {
   const ragBlock =
     citations.length > 0
       ? citations.map((c, i) => `[معلومة إضافية ${i + 1} من ${c.source}]:\n${c.text}`).join("\n\n")
       : "";
 
+  const langInstruction =
+    sessionLanguage === "en"
+      ? "LANGUAGE DIRECTIVE: Respond completely in English. Use clear, encouraging, actionable language with bullet points and per-feddan/hectare organic rates."
+      : sessionLanguage === "de"
+      ? "SPRACHWEISUNG: Antworten Sie vollständig auf Deutsch. Nutzen Sie präzise, fachlich fundierte und praxisnahe Punkte mit Bio-Aufwandmengen pro Feddan/Hektar."
+      : "توجيه اللغة: تحدث باللهجة المصرية الزراعية المبسطة والواضحة للمزارع بصيغة الجمع المؤسسية المهذبة وبدون ألقاب شعبية.";
+
   const channelStyleRule =
     channel === "whatsapp"
-      ? "صِغ الرد ليناسب تطبيق واتساب على الموبايل: فقرات قصيرة جداً (4–6 نقاط مركزة، أقل من 750 حرفاً إجمالاً)، استخدم نجمة واحدة *للكلام المهم* وعلامة • للنقاط، وبدون أي ** أو # أو مصطلحات إنجليزية غير ضرورية."
+      ? "صِغ الرد ليناسب تطبيق واتساب على الموبايل: فقرات قصيرة جداً (4–6 نقاط مركزة، أقل من 750 حرفاً إجمالاً)، استخدم نجمة واحدة *للكلام المهم* وعلامة • للنقاط، وبدون أي ** أو #."
+      : channel === "instagram"
+      ? "صِغ الرد ليناسب رسائل إنستجرام (Instagram DM): نص صافي ومباشر بدون أي نجوم ** أو * أو # نهائياً وبحد أقصى 850 حرفاً في نقاط قصيرة تبدأ بـ • وعناوين تبدأ بـ ▪."
       : channel === "messenger"
-      ? "صِغ الرد ليناسب تطبيق فيسبوك ماسنجر: نص عربي صافي ومباشر بدون أي نجوم ** أو * أو # نهائياً، مع تقسيم الكلام إلى نقاط قصيرة تبدأ بـ • وعناوين قصيرة تبدأ بـ ▪ ليسهل قراءته على الموبايل."
+      ? "صِغ الرد ليناسب تطبيق فيسبوك ماسنجر: نص صافي ومباشر بدون أي نجوم ** أو * أو # نهائياً، مع تقسيم الكلام إلى نقاط قصيرة تبدأ بـ • وعناوين قصيرة تبدأ بـ ▪ ليسهل قراءته على الموبايل."
       : "صِغ الرد ليناسب الموقع الإلكتروني الرسمي للشركة/الجمعية: إجابة منظمة ووافية بعناوين فرعية واضحة (**عنوان:**) ونقاط عملية مرتبة بمعدلات الفدان.";
 
-  return `[القناة الحالية]: ${channel === "whatsapp" ? "واتساب (WhatsApp)" : channel === "messenger" ? "فيسبوك ماسنجر (Facebook Messenger)" : "الموقع الرسمي للشركة/الجمعية (Website)"}
+  return `[اللغة المطلوبة / Target Language]: ${sessionLanguage}
+[توجيه الصياغة اللغوية]: ${langInstruction}
+[القناة الحالية]: ${
+    channel === "whatsapp"
+      ? "واتساب (WhatsApp)"
+      : channel === "instagram"
+      ? "إنستجرام (Instagram DM)"
+      : channel === "messenger"
+      ? "فيسبوك ماسنجر (Facebook Messenger)"
+      : "الموقع الرسمي للشركة/الجمعية (Website)"
+  }
 [قاعدة تنسيق القناة]: ${channelStyleRule}
 
-${focusedDbContext ? `${focusedDbContext}\n\n` : ""}${ragBlock ? `[مراجع مساندة من شيتات وملفات الجمعية]:\n${ragBlock}\n\n` : ""}[رسالة المستخدم]:
+${focusedDbContext ? `${focusedDbContext}\n\n` : ""}${ragBlock ? `[مراجع مساندة من شيتات وملفات الجمعية]:\n${ragBlock}\n\n` : ""}[استدعاء المعارف الخارجية عند غياب البيانات المحلية]:
+إذا سأل المستخدم عن محصول غير وارد في الملفات المرفقة أعلاه (مثل الفستق الحلبي Pistachio، البولونيا Paulownia، فاكهة التنين Dragon Fruit، الأفوكادو Avocado، الكينوا Quinoa، الماكاديميا Macadamia، التين الشوكي، الباشن فروت Passion Fruit، أو أي سؤال زراعي مفتوح):
+- استدعِ فوراً معلوماتك الزراعية العميقة وقدم دليلاً عملياً متكاملاً بنسبة 100% زراعة عضوية وحيوية (تجهيز الأرض، التسميد الحيوي والكمبوست للفدان، شبكة الري، والمكافحة الحيوية بالبدائل الطبيعية كالنيم والصابون البوتاسي وترايكوديرما وباسيلس).
+- لا تعتذر ولا تقل "غير متوفر بالبيانات"، بل أجب مباشرة وبثقة كخبير زراعي متخصص.
+
+[رسالة المستخدم]:
 ${userQuery.trim()}
 
-تذكير مهم جداً: لا تكتب "أهلاً بيك" أو أي تحية في بداية الرد؛ ادخل في الإجابة العادية المباشرة من بيانات المحصول المرفقة أعلاه بصيغة الجمع ("بننصح"، "بنوصي"، "يتم إضافة...") وبدون أي ألقاب شعبية وبدون أي كيماويات نهائياً.`;
+تذكير مهم جداً: لا تكتب "أهلاً بيك" أو أي تحية في بداية الرد؛ ادخل مباشرة في الإجابة العملية بدون أي ألقاب شعبية وبدون أي كيماويات نهائياً.`;
 }
 
 function stripLeadingGreeting(text: string): string {
@@ -955,7 +1012,7 @@ async function transcribeFarmerAudioBase64(
   const promptText =
     "فرّغ هذه الرسالة الصوتية باللغة العربية أو اللهجة المصرية بدقة كما نطقها المزارع (خاصة أسماء المحاصيل والمصطلحات الزراعية)، واكتب النص المسموع فقط بدون أي شرح أو إضافات.";
 
-  const transcribeModels = ["gemini-3.5-transcribe", "gemini-2.5-flash"];
+  const transcribeModels = ["gemini-3.5-transcribe", "gemini-4-hydrogen", "gemini-3.1-flash-lite", "gemini-3.8-flash"];
   let lastErr: unknown = null;
   for (const modelName of transcribeModels) {
     try {
@@ -1063,6 +1120,9 @@ async function generateAdvisorAnswer(
 
   if (!hasImage || isExplicitNav) {
     session.flow_state = flowTurn.next_flow_state;
+    if (flowTurn.next_flow_state?.language) {
+      session.language = flowTurn.next_flow_state.language;
+    }
   }
 
   if (flowTurn.kind === "instant" && (!hasImage || isExplicitNav)) {
@@ -1128,21 +1188,41 @@ async function generateAdvisorAnswer(
   }
 
   const supplementalSheetHits = citations.filter((c) => c.format !== "CSV_DATABASE").slice(0, 3);
+  const activeLanguage = session.language || session.flow_state?.language || "ar";
   let augmentedPrompt = buildAugmentedPrompt(
     effectiveUserMessage,
     supplementalSheetHits,
     focusedDbContext,
-    session.channel
+    session.channel,
+    activeLanguage
   );
 
   if (hasImage) {
-    augmentedPrompt += `\n\n[طلب تشخيص وفحص الصورة الزراعية المرفقة 📷]:
-افحص الصورة المرفقة بعناية شديدة وقدم تقرير التشخيص بالعامية المصرية الأصيلة والمبسطة والمفهومة:
-1. حدد اسم النبات أو المحصول بدقة من الصورة.
-2. تشخيص الحالة: هل النبات سليم أم مصاب؟ وضح طبيعة الإصابة بوضوح (مرض فطري/بكتيري/فيروسي، آفة حشرية كالتوتا أبسلوتا أو المن أو الذبابة أو العناكب، أو نقص تغذية كالحديد والكالسيوم، أو مشاكل ملوحة وري).
-3. خطة العلاج والمكافحة العضوية والحيوية 100% المعتمدة فوراً بمعدلات الفدان الدقيقة (زيت النيم، صابون بوتاسي، باسيلس Bt، فطر ترايكوديرما، كبريت ميكروني، شاي كمبوست) بدون أي كيماويات نهائياً.
-4. إذا كانت الصورة غير واضحة أو مهزوزة أو مظلمة أو ليست لنبات/محصول زراعي أصلاً، اشرح للمزارع بلطف بالعامية المصرية إزاي يصور ورقة النبات في ضوء شمس واضح ويرفعها تاني.
-5. ادخل مباشرة في الشرح بدون أي ترحيبات أو ألقاب مكررة.`;
+    if (activeLanguage === "en") {
+      augmentedPrompt += `\n\n[Attached Agricultural / Plant Image Analysis Request 📷]:
+Inspect the attached photo very carefully as an expert organic & biodynamic agronomist and plant pathologist, and respond in clear, actionable English:
+1. **Identification:** Name precisely what is visible (the exact plant/crop species, leaf/fruit/stem/root, insect/pest, soil condition, compost, or any agricultural item).
+2. **Smart Diagnosis & Visual Evidence:** State clearly whether the plant/sample is healthy or affected. If there is a problem, identify the exact disease (fungal, bacterial, viral), pest (aphids, whiteflies, Tuta absoluta, spider mites, thrips, caterpillars), nutrient deficiency (iron, nitrogen, magnesium, calcium), or environmental/irrigation stress (salinity burn, overwatering, heat/sunscald), pointing out the visual clues seen in the photo.
+3. **100% Organic & Biodynamic Solution ONLY:** Provide an immediate, practical treatment and recovery plan with exact dosages (e.g., cold-pressed Neem oil 5ml/L + potassium soap, Bacillus thuringiensis Bt, Trichoderma harzianum, micronized sulfur, aerated compost tea, diatomaceous earth, sticky traps, pruning & airflow). ZERO synthetic/chemical fertilizers or pesticides allowed!
+4. **Non-agricultural or blurry photos:** If the photo is NOT related to plants/agriculture, politely state what you see and ask for a clear photo of the plant, leaf, or farm item. If blurry/dark, advise how to take a sharp close-up in natural daylight.
+5. Start directly with the diagnosis—no greetings.`;
+    } else if (activeLanguage === "de") {
+      augmentedPrompt += `\n\n[Anfrage zur KI-Bildanalyse (Pflanze / Schädling / Landwirtschaft) 📷]:
+Untersuchen Sie das beigefügte Foto sorgfältig als erfahrener Bio-Agronom und Pflanzenpathologe und antworten Sie auf klarem Deutsch:
+1. **Identifikation:** Benennen Sie genau, was auf dem Bild zu sehen ist (Pflanze/Kulturart, Blatt/Frucht/Wurzel, Insekt/Schädling, Boden, Kompost oder sonstiger landwirtschaftlicher Gegenstand).
+2. **Intelligente Diagnose & Sichtbare Symptome:** Geben Sie an, ob die Pflanze gesund oder befallen ist. Nennen Sie bei Problemen die genaue Krankheit (Pilz, Bakterium, Virus), den Schädling, Nährstoffmangel oder Bewässerungs-/Salzstress anhand der konkreten visuellen Merkmale im Foto.
+3. **100% Ökologische / Demeter-Lösung (OHNE Chemie):** Geben Sie einen sofort umsetzbaren Behandlungs- und Schutzplan mit genauen Dosierungen (z.B. Neemöl 5ml/L + Kaliseife, Bacillus thuringiensis, Trichoderma, Netzschwefel, Komposttee, Kieselgur, Gelb-/Blautafeln). Synthetische Pestizide oder Kunstdünger sind streng verboten!
+4. **Unklare oder nicht-landwirtschaftliche Bilder:** Falls es sich nicht um ein landwirtschaftliches Motiv handelt, nennen Sie freundlich das Erkannte und bitten um ein klares Pflanzen-/Bodenfoto bei Tageslicht.
+5. Beginnen Sie direkt mit der Analyse ohne Begrüßungsfloskeln.`;
+    } else {
+      augmentedPrompt += `\n\n[طلب الفحص والتشخيص الذكي للصورة المرفقة 📷]:
+افحص الصورة المرفقة بدقة عالية كخبير زراعة عضوية وحيوية وأمراض نبات، وأجب بالعامية المصرية المبسطة والواضحة:
+1. **التعرف على محتوى الصورة:** حدد بدقة إيه اللي ظاهر في الصورة (اسم النبات أو المحصول، ورقة، ثمرة، جذر، حشرة/آفة، تربة، كمبوست، أو أي حاجة زراعية أخرى).
+2. **التشخيص الذكي والأعراض الظاهرة:** وضح هل النبات سليم أم مصاب؟ ولو في مشكلة، شخص المرض أو الآفة بدقة (مرض فطري زي البياض الدقيقي/الزغبي/الندوة/التبقع/أعفان الجذور، آفة حشرية زي التوتا أبسلوتا/المن/الذبابة البيضاء/العنكبوت الأحمر/التربس، نقص عناصر زي الحديد/المغنيسيوم/الكالسيوم/النيتروجين، أو إجهاد ملوحة وزيادة/نقص ري)، مع شرح العلامات اللي باينة في الصورة وخلتك توصل للتشخيص ده.
+3. **الحل والعلاج العضوي 100% (Organic & Biodynamic فقط):** قدم خطة علاج فورية ووقاية عملية بمعدلات دقيقة للفدان أو الرشاش المنزلي (مثل: زيت النيم النقي 5 سم/لتر + صابون بوتاسي زراعي، باسيلس Bt، فطر ترايكوديرما، كبريت ميكروني، شاي كمبوست هوائي، دياتوميت، مصائد لونية صفراء وزرقاء، مع إزالة الأوراق شديدة الإصابة وتنظيم الري). **ممنوع تماماً** ذكر أي مبيد أو سماد كيماوي مهما كان!
+4. **لو الصورة مش واضحة أو مش نبات/زراعة:** لو الصورة لحاجة غير زراعية، قول بلطف إيه اللي باين في الصورة ووضح إننا متخصصين في الزراعة العضوية واطلب صورة واضحة للنبات أو الورقة المصابة. ولو مهزوزة أو ضلمة، اشرح إزاي يصورها عن قرب في ضوء الشمس.
+5. ادخل مباشرة في التحليل بدون أي ترحيبات أو ألقاب مكررة.`;
+    }
   }
 
   const slicedHistory = session.messages.slice(-4);
@@ -1173,18 +1253,18 @@ async function generateAdvisorAnswer(
 
   const ai = getGenAIClient();
   let answerText = "";
-  let modelUsed = "gemini-2.5-flash";
+  let modelUsed = "gemini-4-hydrogen";
 
   const candidateModels: Array<{
     name: string;
     thinkingConfig?: { thinkingLevel?: ThinkingLevel; thinkingBudget?: number };
   }> = [
-    { name: "gemini-2.5-flash", thinkingConfig: { thinkingBudget: 0 } },
+    { name: "gemini-4-hydrogen" },
+    { name: "gemini-3.1-flash-lite" },
     { name: "gemini-3.8-flash", thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } },
-    { name: "gemini-flash-latest", thinkingConfig: { thinkingBudget: 0 } },
   ];
 
-  const timeoutMs = hasImage ? 9000 : 3500;
+  const timeoutMs = hasImage ? 22000 : 15000;
 
   try {
     const fastest = await withTimeout(
@@ -1208,23 +1288,35 @@ async function generateAdvisorAnswer(
     );
     answerText = stripLeadingGreeting(fastest.text) || fastest.text;
     modelUsed = fastest.model;
-  } catch {
-    // Fallback to organic guidelines if network/model timeout
+  } catch (err: any) {
+    console.error("Gemini GenerateContent Failure Details:", err?.message || err, err?.errors || "");
   }
 
   if (!answerText && hasImage) {
-    answerText = `تم استلام صورة النبات بنجاح 📷\n\nبناءً على فحص الأعراض الظاهرية، للوقاية والمكافحة العضوية 100% المعتمدة من الجمعية المصرية للزراعة الحيوية (EBDA):\n• رش زيت نيم نقي 5 سم/لتر ماء مع صابون بوتاسي زراعي لمعالجة الحشرات الثاقبة الماصة.\n• رش كبريت ميكروني 250 جم/100 لتر ماء لمكافحة البياض الدقيقي وفطريات الأوراق.\n• حقن 50 لتر شاي كمبوست هوائي غني بعش الفدان لتقوية الجذور والمناعة.\n• إذا كانت الورقة المصابة غير واضحة، من فضلك صورها عن قرب في إضاءة شمس كويسة وارفعها تاني.`;
+    answerText =
+      activeLanguage === "en"
+        ? "Photo received 📷\n\nFor 100% Organic & Biodynamic protection certified by EBDA:\n• Spray cold-pressed Neem oil (5 ml/L) + agricultural potassium soap for piercing-sucking insects.\n• Apply micronized sulfur (250 g/100 L) against powdery mildew and foliar fungi.\n• Drench aerated compost tea + Trichoderma around roots to boost plant immunity.\n• If the leaf or pest wasn't sharp, please take a close-up photo in clear sunlight and resend."
+        : activeLanguage === "de"
+        ? "Foto erhalten 📷\n\nFür 100% ökologischen Schutz nach EBDA-/Demeter-Richtlinien:\n• Kaltgepresstes Neemöl (5 ml/L) + Kaliseife gegen saugende Schädlinge sprühen.\n• Netzschwefel (250 g/100 L) gegen Mehltau und Blattpilze einsetzen.\n• Belüfteten Komposttee + Trichoderma im Wurzelbereich zur Stärkung der Pflanzengesundheit ausbringen.\n• Falls das Bild unscharf war, nehmen Sie bitte eine Nahaufnahme bei gutem Tageslicht auf."
+        : "تم استلام الصورة بنجاح 📷\n\nبناءً على إرشادات الوقاية والعلاج العضوي 100% المعتمدة من الجمعية المصرية للزراعة الحيوية (EBDA):\n• رش زيت نيم نقي (5 سم/لتر ماء) مع صابون بوتاسي زراعي لمكافحة الحشرات الثاقبة الماصة.\n• رش كبريت ميكروني (250 جم/100 لتر ماء) للوقاية من البياض الدقيقي وفطريات الأوراق.\n• حقن 50 لتر شاي كمبوست هوائي مع فطر ترايكوديرما حول الجذور لتقوية مناعة النبات.\n• لو الإضاءة كانت ضعيفة أو الصورة بعيدة، صورلنا الجزء المصاب عن قرب في ضوء الشمس وارفعها تاني للتشخيص الدقيق.";
     modelUsed = "association-vision-fallback";
   } else if (!answerText) {
     answerText = deterministicFallback;
     modelUsed = "association-db-fallback";
   }
 
+  const visionFollowUpReplies =
+    activeLanguage === "en"
+      ? ["Scan Another Photo 📷", "Organic Farming Topics", "Main Menu"]
+      : activeLanguage === "de"
+      ? ["Weiteres Foto prüfen 📷", "Themen des Ökolandbaus", "Hauptmenü"]
+      : ["فحص صورة أخرى 📷", "موضوعات الزراعة العضوية", "هل توجد مشكلة في محصول؟", "القائمة الرئيسية"];
+
   const quickReplies =
-    flowTurn.quick_replies && flowTurn.quick_replies.length > 0
+    hasImage && !isExplicitNav
+      ? visionFollowUpReplies
+      : flowTurn.quick_replies && flowTurn.quick_replies.length > 0
       ? flowTurn.quick_replies
-      : hasImage
-      ? ["برنامج التسميد العضوي 🌿", "مكافحة الآفات الحيوية 🐞", "فحص صورة تانية 📷", "القائمة الرئيسية 📋"]
       : flowTurn.quick_replies;
 
   answerText = formatMessageForChannel(
@@ -1301,6 +1393,7 @@ async function initPersistentStores(): Promise<void> {
   if (Object.keys(appState.sessions).length === 0) {
     getOrCreateSession("whatsapp:live-test", "whatsapp", "201000000000", "محادثة واتساب التجريبية");
     getOrCreateSession("messenger:live-test", "messenger", "fb_user_test", "محادثة فيسبوك التجريبية");
+    getOrCreateSession("instagram:live-test", "instagram", "ig_user_test", "محادثة إنستجرام التجريبية");
     getOrCreateSession("widget:live-test", "widget", "web_visitor_test", "محادثة الموقع التجريبية");
     await saveAppState();
   }
@@ -1380,6 +1473,18 @@ async function startServer() {
 
   const app = express();
   app.use(express.json({ limit: "25mb" }));
+
+  // Enable cross-origin requests so /agripulse-widget.js works seamlessly on ANY external company website
+  app.use((req: Request, res: Response, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
 
   app.get("/api/health", (_req: Request, res: Response) => {
     res.json({
@@ -1880,7 +1985,7 @@ async function startServer() {
         return;
       }
 
-      const validChannel = ["widget", "whatsapp", "messenger"].includes(channel) ? channel : "widget";
+      const validChannel = ["widget", "whatsapp", "messenger", "instagram"].includes(channel) ? channel : "widget";
       const session = getOrCreateSession(session_id, validChannel, external_user_id, profile_name);
       if (farm_context && typeof farm_context === "object") {
         session.farm_context = { ...session.farm_context, ...farm_context };
@@ -1958,8 +2063,8 @@ async function startServer() {
       }
 
       const transcribedText = await transcribeFarmerAudioBase64(audio_base64, String(mime_type));
-      const validChannel = ["widget", "whatsapp", "messenger"].includes(channel)
-        ? (channel as "widget" | "whatsapp" | "messenger")
+      const validChannel = ["widget", "whatsapp", "messenger", "instagram"].includes(channel)
+        ? (channel as "widget" | "whatsapp" | "messenger" | "instagram")
         : "widget";
       const session = getOrCreateSession(session_id, validChannel, external_user_id, profile_name);
       appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
@@ -2045,7 +2150,7 @@ async function startServer() {
   function ensureUniqueShortTitles(labels: string[], maxLen: number): string[] {
     const used = new Set<string>();
     return labels.map((label, idx) => {
-      let short = shortenChoiceTitle(label, maxLen);
+      let short = formatTitleWithIcon(label, maxLen);
       if (used.has(short)) {
         const suffix = ` ${idx + 1}`;
         short = `${short.slice(0, Math.max(2, maxLen - suffix.length)).trim()}${suffix}`;
@@ -2124,8 +2229,38 @@ async function startServer() {
     };
   }
 
+  async function sendMetaGraphWithLogging(
+    channelLabel: "whatsapp" | "messenger" | "instagram",
+    url: string,
+    token: string,
+    payload: unknown
+  ): Promise<void> {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => "");
+        console.warn(`${channelLabel} Graph API error (${resp.status}):`, errBody.slice(0, 300));
+      }
+    } catch (e) {
+      console.warn(`${channelLabel} Graph API send warning:`, e);
+    }
+  }
+
   app.post("/webhooks/whatsapp", async (req: Request, res: Response) => {
     const t0 = Date.now();
+    const isRealMetaSignature = Boolean(req.get("x-hub-signature-256"));
+    if (isRealMetaSignature) {
+      // Meta requires 200 OK within 20s; acknowledge immediately and process asynchronously
+      res.status(200).send("EVENT_RECEIVED");
+    }
+
     try {
       const payload = req.body || {};
       const results: unknown[] = [];
@@ -2135,6 +2270,10 @@ async function startServer() {
           const val = change.value || {};
           const contactName = val.contacts?.[0]?.profile?.name || "عضو الجمعية";
           for (const msg of val.messages || []) {
+            if (msg.id && isDuplicateMetaMessage(`wa:${String(msg.id)}`)) {
+              continue;
+            }
+
             let incomingText =
               msg.type === "text"
                 ? msg.text?.body
@@ -2251,17 +2390,12 @@ async function startServer() {
               const waToken = process.env.WHATSAPP_ACCESS_TOKEN;
               const waPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || val.metadata?.phone_number_id;
               if (waToken && waPhoneId && phone !== "live-test") {
-                fetch(
+                void sendMetaGraphWithLogging(
+                  "whatsapp",
                   `https://graph.facebook.com/v21.0/${encodeURIComponent(String(waPhoneId))}/messages`,
-                  {
-                    method: "POST",
-                    headers: {
-                      Authorization: `Bearer ${waToken}`,
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify(graphOutbound),
-                  }
-                ).catch((e) => console.warn("WhatsApp Graph API send warning:", e));
+                  waToken,
+                  graphOutbound
+                );
               }
 
               results.push({
@@ -2299,11 +2433,207 @@ async function startServer() {
 
       appState.webhook_logs = appState.webhook_logs.slice(0, 40);
       await saveAppState();
-      res.json({ status: "processed", events_handled: results.length, results });
+      if (!isRealMetaSignature && !res.headersSent) {
+        res.json({ status: "processed", events_handled: results.length, results });
+      }
     } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : "WhatsApp webhook error" });
+      if (!res.headersSent) {
+        res.status(500).json({ error: err instanceof Error ? err.message : "WhatsApp webhook error" });
+      } else {
+        console.error("WhatsApp async webhook error:", err);
+      }
     }
   });
+
+  async function processMetaSocialWebhook(
+    req: Request,
+    res: Response,
+    forcedChannel?: "messenger" | "instagram"
+  ): Promise<void> {
+    const t0 = Date.now();
+    const isRealMetaSignature = Boolean(req.get("x-hub-signature-256"));
+    if (isRealMetaSignature) {
+      res.status(200).send("EVENT_RECEIVED");
+    }
+
+    try {
+      const payload = req.body || {};
+      const detectedChannel: "messenger" | "instagram" =
+        forcedChannel || (payload.object === "instagram" ? "instagram" : "messenger");
+      const endpointPath =
+        detectedChannel === "instagram" ? "/webhooks/instagram" : "/webhooks/messenger";
+      const results: unknown[] = [];
+
+      for (const entry of payload.entry || []) {
+        for (const event of entry.messaging || []) {
+          const mid = event.message?.mid ? String(event.message.mid) : undefined;
+          if (mid && isDuplicateMetaMessage(`${detectedChannel}:${mid}`)) {
+            continue;
+          }
+
+          const psid = String(event.sender?.id || `${detectedChannel}_user_901`);
+          let incomingText =
+            event.message?.quick_reply?.payload ||
+            event.postback?.payload ||
+            event.message?.text;
+
+          if (!incomingText && !event.message?.is_echo) {
+            const audioAtt = (event.message?.attachments || []).find(
+              (a: { type?: string }) => a?.type === "audio"
+            );
+            if (audioAtt) {
+              try {
+                if (audioAtt.payload?.base64) {
+                  incomingText = await transcribeFarmerAudioBase64(
+                    String(audioAtt.payload.base64),
+                    String(audioAtt.payload.mime_type || "audio/mp4")
+                  );
+                  appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
+                } else if (audioAtt.payload?.url) {
+                  const audioBinResp = await fetch(String(audioAtt.payload.url));
+                  if (audioBinResp.ok) {
+                    const buf = Buffer.from(await audioBinResp.arrayBuffer());
+                    incomingText = await transcribeFarmerAudioBase64(
+                      buf.toString("base64"),
+                      audioBinResp.headers.get("content-type") || "audio/mp4"
+                    );
+                    appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
+                  }
+                }
+              } catch (audioErr) {
+                console.warn(`${detectedChannel} audio transcription warning:`, audioErr);
+              }
+            }
+          }
+
+          let incomingImageBase64: string | undefined;
+          let incomingImageMime = "image/jpeg";
+
+          if (!event.message?.is_echo && event.message?.attachments) {
+            const imgAtt = (event.message.attachments || []).find(
+              (a: { type?: string }) => a?.type === "image"
+            );
+            if (imgAtt) {
+              if (!incomingText) incomingText = "فحص صورة النبات وتشخيص الإصابة 📷";
+              if (imgAtt.payload?.base64) {
+                incomingImageBase64 = String(imgAtt.payload.base64);
+                incomingImageMime = String(imgAtt.payload.mime_type || "image/jpeg");
+              } else if (imgAtt.payload?.url) {
+                try {
+                  const imgResp = await fetch(String(imgAtt.payload.url));
+                  if (imgResp.ok) {
+                    const buf = Buffer.from(await imgResp.arrayBuffer());
+                    incomingImageBase64 = buf.toString("base64");
+                    incomingImageMime = imgResp.headers.get("content-type") || "image/jpeg";
+                  }
+                } catch (attErr) {
+                  console.warn(`${detectedChannel} image attachment download warning:`, attErr);
+                }
+              }
+            }
+          }
+
+          if ((incomingText || incomingImageBase64) && !event.message?.is_echo) {
+            const sessionId = `${detectedChannel}:${psid}`;
+            const session = getOrCreateSession(
+              sessionId,
+              detectedChannel,
+              psid,
+              detectedChannel === "instagram"
+                ? `عضو إنستجرام (${psid.slice(-4)})`
+                : `عضو ماسنجر (${psid.slice(-4)})`
+            );
+            const { messageRecord, citations } = await generateAdvisorAnswer(
+              session,
+              String(incomingText || "فحص وتشخيص صورة النبات المرفقة 📷"),
+              {
+                imageBase64: incomingImageBase64,
+                imageMime: incomingImageMime,
+                isVoice: false,
+              }
+            );
+
+            const qrList = (messageRecord.quick_replies || []).filter(Boolean).slice(0, 13);
+            const qrTitles = ensureUniqueShortTitles(qrList, 20);
+            const cleanSocialText = formatMessageForChannel(
+              messageRecord.content,
+              detectedChannel,
+              qrList.length > 0
+            );
+            const graphOutbound = {
+              recipient: { id: psid },
+              messaging_type: "RESPONSE",
+              message: {
+                text: cleanSocialText,
+                ...(qrList.length > 0
+                  ? {
+                      quick_replies: qrList.map((label, idx) => ({
+                        content_type: "text",
+                        title: qrTitles[idx],
+                        payload: label.slice(0, 1000),
+                      })),
+                    }
+                  : {}),
+              },
+            };
+
+            const igToken = process.env.INSTAGRAM_ACCESS_TOKEN;
+            const fbPageToken = process.env.MESSENGER_PAGE_ACCESS_TOKEN;
+            const activeToken =
+              detectedChannel === "instagram" ? igToken || fbPageToken : fbPageToken;
+            if (activeToken && psid !== "live-test") {
+              const graphHost =
+                detectedChannel === "instagram" && igToken && igToken.startsWith("IG")
+                  ? "https://graph.instagram.com/v21.0/me/messages"
+                  : "https://graph.facebook.com/v21.0/me/messages";
+              void sendMetaGraphWithLogging(detectedChannel, graphHost, activeToken, graphOutbound);
+            }
+
+            results.push({
+              session_id: sessionId,
+              channel: detectedChannel,
+              message_id: messageRecord.message_id,
+              sender_psid: psid,
+              answer: messageRecord.content,
+              quick_replies: messageRecord.quick_replies || [],
+              ui_mode: messageRecord.ui_mode || "default",
+              flow_state: session.flow_state,
+              citations,
+              latency_ms: messageRecord.latency_ms,
+              graph_api_payload: graphOutbound,
+            });
+
+            appState.webhook_logs.unshift({
+              id: `wh_${crypto.randomUUID().slice(0, 10)}`,
+              channel: detectedChannel,
+              method: "POST",
+              endpoint: endpointPath,
+              status_code: 200,
+              sender_id: psid,
+              inbound_preview: String(incomingText).slice(0, 120),
+              outbound_preview: messageRecord.content.slice(0, 140),
+              raw_inbound: payload,
+              raw_outbound: graphOutbound,
+              latency_ms: Date.now() - t0,
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+      }
+
+      appState.webhook_logs = appState.webhook_logs.slice(0, 40);
+      await saveAppState();
+      if (!isRealMetaSignature && !res.headersSent) {
+        res.json({ status: "processed", events_handled: results.length, results });
+      }
+    } catch (err: unknown) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: err instanceof Error ? err.message : "Social webhook error" });
+      } else {
+        console.error("Social async webhook error:", err);
+      }
+    }
+  }
 
   // --- Facebook Messenger Platform Webhooks ---
   app.get("/webhooks/messenger", async (req: Request, res: Response) => {
@@ -2336,172 +2666,51 @@ async function startServer() {
   });
 
   app.post("/webhooks/messenger", async (req: Request, res: Response) => {
-    const t0 = Date.now();
-    try {
-      const payload = req.body || {};
-      const results: unknown[] = [];
+    await processMetaSocialWebhook(req, res);
+  });
 
-      for (const entry of payload.entry || []) {
-        for (const event of entry.messaging || []) {
-          const psid = String(event.sender?.id || "psid_organic_901");
-          let incomingText =
-            event.message?.quick_reply?.payload ||
-            event.postback?.payload ||
-            event.message?.text;
+  // --- Instagram Messaging (DM) Webhooks ---
+  app.get("/webhooks/instagram", async (req: Request, res: Response) => {
+    const mode = String(req.query["hub.mode"] || "");
+    const token = String(req.query["hub.verify_token"] || "");
+    const challenge = String(req.query["hub.challenge"] || "");
+    const ok =
+      mode === "subscribe" &&
+      (token === INSTAGRAM_VERIFY_TOKEN || token === MESSENGER_VERIFY_TOKEN) &&
+      challenge.length > 0;
 
-          if (!incomingText && !event.message?.is_echo) {
-            const audioAtt = (event.message?.attachments || []).find(
-              (a: { type?: string }) => a?.type === "audio"
-            );
-            if (audioAtt) {
-              try {
-                if (audioAtt.payload?.base64) {
-                  incomingText = await transcribeFarmerAudioBase64(
-                    String(audioAtt.payload.base64),
-                    String(audioAtt.payload.mime_type || "audio/mp4")
-                  );
-                  appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
-                } else if (audioAtt.payload?.url) {
-                  const audioBinResp = await fetch(String(audioAtt.payload.url));
-                  if (audioBinResp.ok) {
-                    const buf = Buffer.from(await audioBinResp.arrayBuffer());
-                    incomingText = await transcribeFarmerAudioBase64(
-                      buf.toString("base64"),
-                      audioBinResp.headers.get("content-type") || "audio/mp4"
-                    );
-                    appState.voice_messages_count = (appState.voice_messages_count || 0) + 1;
-                  }
-                }
-              } catch (audioErr) {
-                console.warn("Messenger audio transcription warning:", audioErr);
-              }
-            }
-          }
+    appState.webhook_logs.unshift({
+      id: `wh_${crypto.randomUUID().slice(0, 10)}`,
+      channel: "instagram",
+      method: "GET",
+      endpoint: "/webhooks/instagram",
+      status_code: ok ? 200 : 403,
+      sender_id: "meta-ig-verifier",
+      inbound_preview: `hub.mode=${mode} · verify_token=${ok ? "matched" : "mismatch"}`,
+      outbound_preview: ok ? `Challenge echoed: ${challenge}` : "403 Forbidden",
+      raw_inbound: req.query,
+      raw_outbound: ok ? challenge : { error: "Verification token mismatch" },
+      latency_ms: 2,
+      created_at: new Date().toISOString(),
+    });
+    await saveAppState();
 
-          let incomingImageBase64: string | undefined;
-          let incomingImageMime = "image/jpeg";
-
-            if (!event.message?.is_echo && event.message?.attachments) {
-              const imgAtt = (event.message.attachments || []).find(
-                (a: { type?: string }) => a?.type === "image"
-              );
-              if (imgAtt) {
-                if (!incomingText) incomingText = "فحص صورة النبات وتشخيص الإصابة 📷";
-                if (imgAtt.payload?.base64) {
-                  incomingImageBase64 = String(imgAtt.payload.base64);
-                  incomingImageMime = String(imgAtt.payload.mime_type || "image/jpeg");
-                } else if (imgAtt.payload?.url) {
-                  try {
-                    const imgResp = await fetch(String(imgAtt.payload.url));
-                    if (imgResp.ok) {
-                      const buf = Buffer.from(await imgResp.arrayBuffer());
-                      incomingImageBase64 = buf.toString("base64");
-                      incomingImageMime = imgResp.headers.get("content-type") || "image/jpeg";
-                    }
-                  } catch (attErr) {
-                    console.warn("Messenger image attachment download warning:", attErr);
-                  }
-                }
-              }
-            }
-
-            if ((incomingText || incomingImageBase64) && !event.message?.is_echo) {
-              const sessionId = `messenger:${psid}`;
-              const session = getOrCreateSession(
-                sessionId,
-                "messenger",
-                psid,
-                `عضو ماسنجر (${psid.slice(-4)})`
-              );
-              const { messageRecord, citations } = await generateAdvisorAnswer(
-                session,
-                String(incomingText || "فحص وتشخيص صورة النبات المرفقة 📷"),
-                {
-                  imageBase64: incomingImageBase64,
-                  imageMime: incomingImageMime,
-                  isVoice: false,
-                }
-              );
-
-            const qrList = (messageRecord.quick_replies || []).filter(Boolean).slice(0, 13);
-            const qrTitles = ensureUniqueShortTitles(qrList, 20);
-            const cleanMessengerText = formatMessageForChannel(
-              messageRecord.content,
-              "messenger",
-              qrList.length > 0
-            );
-            const graphOutbound = {
-              recipient: { id: psid },
-              messaging_type: "RESPONSE",
-              message: {
-                text: cleanMessengerText,
-                ...(qrList.length > 0
-                  ? {
-                      quick_replies: qrList.map((label, idx) => ({
-                        content_type: "text",
-                        title: qrTitles[idx],
-                        payload: label.slice(0, 1000),
-                      })),
-                    }
-                  : {}),
-              },
-            };
-
-            const fbPageToken = process.env.MESSENGER_PAGE_ACCESS_TOKEN;
-            if (fbPageToken && psid !== "live-test") {
-              fetch(
-                `https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(fbPageToken)}`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(graphOutbound),
-                }
-              ).catch((e) => console.warn("Messenger Send API warning:", e));
-            }
-
-            results.push({
-              session_id: sessionId,
-              message_id: messageRecord.message_id,
-              sender_psid: psid,
-              answer: messageRecord.content,
-              quick_replies: messageRecord.quick_replies || [],
-              ui_mode: messageRecord.ui_mode || "default",
-              flow_state: session.flow_state,
-              citations,
-              latency_ms: messageRecord.latency_ms,
-              graph_api_payload: graphOutbound,
-            });
-
-            appState.webhook_logs.unshift({
-              id: `wh_${crypto.randomUUID().slice(0, 10)}`,
-              channel: "messenger",
-              method: "POST",
-              endpoint: "/webhooks/messenger",
-              status_code: 200,
-              sender_id: psid,
-              inbound_preview: String(incomingText).slice(0, 120),
-              outbound_preview: messageRecord.content.slice(0, 140),
-              raw_inbound: payload,
-              raw_outbound: graphOutbound,
-              latency_ms: Date.now() - t0,
-              created_at: new Date().toISOString(),
-            });
-          }
-        }
-      }
-
-      appState.webhook_logs = appState.webhook_logs.slice(0, 40);
-      await saveAppState();
-      res.json({ status: "processed", events_handled: results.length, results });
-    } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : "Messenger webhook error" });
+    if (ok) {
+      res.status(200).type("text/plain").send(challenge);
+    } else {
+      res.status(403).json({ error: "Instagram webhook verification failed." });
     }
+  });
+
+  app.post("/webhooks/instagram", async (req: Request, res: Response) => {
+    await processMetaSocialWebhook(req, res, "instagram");
   });
 
   app.get("/api/webhooks/logs", (_req: Request, res: Response) => {
     res.json({
       whatsapp_verify_token: WHATSAPP_VERIFY_TOKEN,
       messenger_verify_token: MESSENGER_VERIFY_TOKEN,
+      instagram_verify_token: INSTAGRAM_VERIFY_TOKEN,
       logs: appState.webhook_logs,
     });
   });
@@ -2530,6 +2739,8 @@ async function startServer() {
       ? "whatsapp"
       : sid.startsWith("messenger:")
       ? "messenger"
+      : sid.startsWith("instagram:")
+      ? "instagram"
       : "widget";
     const session = getOrCreateSession(sid, inferredChannel);
     res.json({ session });
@@ -2577,13 +2788,14 @@ async function startServer() {
 
     let totalMessagesCount = 0;
     const assistantLatencies: number[] = [];
-    const channelsBreakdown = { whatsapp: 0, messenger: 0, widget: 0 };
+    const channelsBreakdown = { whatsapp: 0, messenger: 0, instagram: 0, widget: 0 };
 
     for (const s of allSessions) {
       totalMessagesCount += s.messages.length;
       const userMsgCount = s.messages.filter((m) => m.role === "user").length;
       if (s.channel === "whatsapp") channelsBreakdown.whatsapp += userMsgCount;
       else if (s.channel === "messenger") channelsBreakdown.messenger += userMsgCount;
+      else if (s.channel === "instagram") channelsBreakdown.instagram += userMsgCount;
       else channelsBreakdown.widget += userMsgCount;
 
       for (const m of s.messages) {
@@ -2844,16 +3056,21 @@ async function startServer() {
     '<div id="ap-img-bar" style="display:none;align-items:center;justify-content:space-between;padding:6px 10px;background:#f0fdf4;border-top:1px solid #bbf7d0;font-size:11px;color:#166534;">' +
       '<div style="display:flex;align-items:center;gap:6px;">' +
         '<img id="ap-img-thumb" style="width:28px;height:28px;border-radius:6px;object-fit:cover;border:1px solid #86efac;"/>' +
-        '<span>صورة نبات جاهزة للتشخيص</span>' +
+        '<span>صورة جاهزة للتحليل العضوي 🌿</span>' +
       '</div>' +
-      '<button type="button" id="ap-img-del" title="إلغاء الصورة" style="background:none;border:none;color:#dc2626;font-size:13px;cursor:pointer;">✕</button>' +
+      '<div style="display:flex;align-items:center;gap:6px;">' +
+        '<button type="button" id="ap-img-go" style="background:' + primaryColor + ';color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;">تشخيص فوري</button>' +
+        '<button type="button" id="ap-img-del" title="إلغاء الصورة" style="background:none;border:none;color:#dc2626;font-size:13px;cursor:pointer;">✕</button>' +
+      '</div>' +
     '</div>' +
-    '<form id="ap-form" style="display:flex;align-items:center;gap:6px;padding:10px;border-top:1px solid #e5e5e0;background:#fff;">' +
+    '<form id="ap-form" style="display:flex;align-items:center;gap:5px;padding:10px;border-top:1px solid #e5e5e0;background:#fff;">' +
       '<input type="file" id="ap-file" accept="image/*" style="display:none;"/>' +
-      '<input id="ap-in" placeholder="اكتب سؤالك أو ارفع صورة نبات..." style="flex:1;border:1px solid #d6d3cd;border-radius:10px;padding:9px 11px;font-size:13px;outline:none;background:#faf9f6;"/>' +
-      '<button type="button" id="ap-cam" title="رفع صورة نبات للتشخيص الفوري" style="background:#f0fdf4;color:' + primaryColor + ';border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;font-size:14px;cursor:pointer;">📷</button>' +
-      '<button type="button" id="ap-mic" title="تسجيل رسالة صوتية" style="background:#f0fdf4;color:' + primaryColor + ';border:1px solid #bbf7d0;border-radius:10px;padding:8px 10px;font-size:14px;cursor:pointer;">🎤</button>' +
-      '<button type="submit" style="background:' + primaryColor + ';color:#fff;border:none;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;">إرسال</button>' +
+      '<input type="file" id="ap-cam-file" accept="image/*" capture="environment" style="display:none;"/>' +
+      '<input id="ap-in" placeholder="اكتب سؤالك أو صور/ارفع نباتاً..." style="flex:1;min-width:0;border:1px solid #d6d3cd;border-radius:10px;padding:9px 10px;font-size:13px;outline:none;background:#faf9f6;"/>' +
+      '<button type="button" id="ap-upload" title="رفع صورة من الجهاز" style="background:#f0fdf4;color:' + primaryColor + ';border:1px solid #bbf7d0;border-radius:10px;padding:8px 9px;font-size:14px;cursor:pointer;">🖼️</button>' +
+      '<button type="button" id="ap-cam" title="تصوير بالكاميرا مباشرة" style="background:#f0fdf4;color:' + primaryColor + ';border:1px solid #bbf7d0;border-radius:10px;padding:8px 9px;font-size:14px;cursor:pointer;">📷</button>' +
+      '<button type="button" id="ap-mic" title="تسجيل رسالة صوتية" style="background:#f0fdf4;color:' + primaryColor + ';border:1px solid #bbf7d0;border-radius:10px;padding:8px 9px;font-size:14px;cursor:pointer;">🎤</button>' +
+      '<button type="submit" style="background:' + primaryColor + ';color:#fff;border:none;border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;">إرسال</button>' +
     '</form>';
 
   document.body.appendChild(btn);
@@ -2864,11 +3081,14 @@ async function startServer() {
   var form = box.querySelector("#ap-form");
   var inp = box.querySelector("#ap-in");
   var micBtn = box.querySelector("#ap-mic");
+  var upBtn = box.querySelector("#ap-upload");
   var camBtn = box.querySelector("#ap-cam");
   var fileInp = box.querySelector("#ap-file");
+  var camFileInp = box.querySelector("#ap-cam-file");
   var imgBar = box.querySelector("#ap-img-bar");
   var imgThumb = box.querySelector("#ap-img-thumb");
   var imgDel = box.querySelector("#ap-img-del");
+  var imgGo = box.querySelector("#ap-img-go");
   var closeBtn = box.querySelector("#ap-close");
   var resetBtn = box.querySelector("#ap-reset");
   var mediaRec = null;
@@ -2879,23 +3099,42 @@ async function startServer() {
   btn.onclick = function(){ box.style.display = box.style.display === "none" ? "flex" : "none"; };
   closeBtn.onclick = function(){ box.style.display = "none"; };
 
-  camBtn.onclick = function(){ fileInp.click(); };
-  fileInp.onchange = function(){
-    if(!fileInp.files || !fileInp.files[0]) return;
-    var f = fileInp.files[0];
-    pendingImgMime = f.type || "image/jpeg";
+  function handleWidgetFile(f){
+    if(!f) return;
+    pendingImgMime = "image/jpeg";
     var reader = new FileReader();
     reader.onload = function(e){
       var res = String(e.target.result || "");
-      pendingImgBase64 = res.indexOf(",") >= 0 ? res.slice(res.indexOf(",") + 1) : res;
-      imgThumb.src = res;
-      imgBar.style.display = "flex";
+      var imgObj = new Image();
+      imgObj.onload = function(){
+        var maxDim = 1280;
+        var w = imgObj.width, h = imgObj.height;
+        if(w > maxDim || h > maxDim){
+          if(w >= h){ h = Math.round(h * maxDim / w); w = maxDim; }
+          else { w = Math.round(w * maxDim / h); h = maxDim; }
+        }
+        var cv = document.createElement("canvas");
+        cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(imgObj, 0, 0, w, h);
+        var outUrl = cv.toDataURL("image/jpeg", 0.85);
+        pendingImgBase64 = outUrl.slice(outUrl.indexOf(",") + 1);
+        imgThumb.src = outUrl;
+        imgBar.style.display = "flex";
+      };
+      imgObj.src = res;
     };
     reader.readAsDataURL(f);
-  };
+  }
+
+  upBtn.onclick = function(){ fileInp.click(); };
+  camBtn.onclick = function(){ camFileInp.click(); };
+  fileInp.onchange = function(){ if(fileInp.files && fileInp.files[0]) handleWidgetFile(fileInp.files[0]); };
+  camFileInp.onchange = function(){ if(camFileInp.files && camFileInp.files[0]) handleWidgetFile(camFileInp.files[0]); };
+  imgGo.onclick = function(){ sendMsg("حلل هذه الصورة وشخص أي مرض أو آفة وقدم العلاج العضوي 100% 🌿"); };
   imgDel.onclick = function(){
     pendingImgBase64 = null;
     fileInp.value = "";
+    camFileInp.value = "";
     imgBar.style.display = "none";
   };
 
@@ -2921,6 +3160,62 @@ async function startServer() {
       });
   }
 
+  function getWidgetIcon(label){
+    if(!label) return "🌱";
+    var l = String(label).toLowerCase();
+    if(l.indexOf("رئيسية")>=0) return "🏠";
+    if(l.indexOf("رجوع")>=0 || l.indexOf("سابق")>=0) return "↩️";
+    if(l.indexOf("تعديل")>=0) return "✏️";
+    if(l.indexOf("تأكيد")>=0 || l.indexOf("موافق")>=0 || l === "نعم") return "✅";
+    if(l.indexOf("إلغاء")>=0 || l.indexOf("خروج")>=0 || l === "لا") return "✕";
+    if(l.indexOf("أخرى")>=0 || l.indexOf("غير موجود")>=0 || l.indexOf("سؤال آخر")>=0) return "💬";
+    if(l.indexOf("موضوعات")>=0 || l.indexOf("محاور")>=0) return "📚";
+    if(l.indexOf("تسويق")>=0 || l.indexOf("تخزين")>=0 || l.indexOf("ما بعد الحصاد")>=0) return "📦";
+    if(l.indexOf("تسجيل")>=0 || l.indexOf("عضوية")>=0 || l.indexOf("انضمام")>=0) return "📝";
+    if(l.indexOf("عن الجمعية")>=0 || l.indexOf("اقتصاد المحبة")>=0 || l.indexOf("ديميتر")>=0 || l.indexOf("ebda")>=0) return "🌱";
+    if(l.indexOf("أسئلة شائعة")>=0 || l.indexOf("faq")>=0 || l.indexOf("سؤال")>=0) return "❓";
+    if(l.indexOf("مشكلة")>=0 || l.indexOf("إصابة")>=0 || l.indexOf("مرض")>=0 || l.indexOf("أعراض")>=0 || l.indexOf("تشخيص")>=0) return "🔍";
+    if(l.indexOf("ترشيح")>=0 || l.indexOf("أنسب محصول")>=0) return "🧭";
+    if(l.indexOf("دليل")>=0) return "📖";
+    if(l.indexOf("صورة")>=0 || l.indexOf("كاميرا")>=0) return "📷";
+    if(l.indexOf("صوت")>=0 || l.indexOf("تسجيل")>=0) return "🎙️";
+    if(l.indexOf("حقلية")>=0) return "🌾";
+    if(l.indexOf("خضروات")>=0 || l.indexOf("خضر")>=0) return "🍅";
+    if(l.indexOf("فاكهة")>=0) return "🍊";
+    if(l.indexOf("طبية")>=0 || l.indexOf("عطرية")>=0 || l.indexOf("أعشاب")>=0) return "🌿";
+    if(l.indexOf("زيتية")>=0 || l.indexOf("جذرية")>=0) return "🥜";
+    if(l.indexOf("بيئية")>=0 || l.indexOf("مناخ")>=0) return "🌤️";
+    if(l.indexOf("بذور")>=0 || l.indexOf("تقاوي")>=0 || l.indexOf("شتل")>=0) return "🌱";
+    if(l.indexOf("ري")>=0 || l.indexOf("مياه")>=0) return "💧";
+    if(l.indexOf("تسميد")>=0 || l.indexOf("كمبوست")>=0) return "🧪";
+    if(l.indexOf("مكافحة")>=0 || l.indexOf("آفات")>=0 || l.indexOf("حشرات")>=0 || l.indexOf("حشائش")>=0) return "🐞";
+    if(l.indexOf("حصاد")>=0) return "🚜";
+    if(l.indexOf("طماطم")>=0) return "🍅";
+    if(l.indexOf("خيار")>=0) return "🥒";
+    if(l.indexOf("بطاطس")>=0) return "🥔";
+    if(l.indexOf("بصل")>=0) return "🧅";
+    if(l.indexOf("ثوم")>=0) return "🧄";
+    if(l.indexOf("جزر")>=0) return "🥕";
+    if(l.indexOf("فلفل")>=0) return "🫑";
+    if(l.indexOf("باذنجان")>=0) return "🍆";
+    if(l.indexOf("قمح")>=0 || l.indexOf("شعير")>=0 || l.indexOf("أرز")>=0) return "🌾";
+    if(l.indexOf("ذرة")>=0) return "🌽";
+    if(l.indexOf("برسيم")>=0) return "🍀";
+    if(l.indexOf("فول")>=0 || l.indexOf("حمص")>=0 || l.indexOf("فاصوليا")>=0 || l.indexOf("عدس")>=0) return "🫘";
+    if(l.indexOf("زيتون")>=0) return "🫒";
+    if(l.indexOf("عنب")>=0) return "🍇";
+    if(l.indexOf("برتقال")>=0 || l.indexOf("ليمون")>=0 || l.indexOf("موالح")>=0) return "🍊";
+    if(l.indexOf("مانجو")>=0) return "🥭";
+    if(l.indexOf("نخيل")>=0 || l.indexOf("بلح")>=0) return "🌴";
+    if(l.indexOf("فراولة")>=0) return "🍓";
+    if(l.indexOf("موز")>=0) return "🍌";
+    if(l.indexOf("تفاح")>=0 || l.indexOf("كمثرى")>=0) return "🍎";
+    if(l.indexOf("نعناع")>=0 || l.indexOf("ريحان")>=0 || l.indexOf("روزماري")>=0 || l.indexOf("زعتر")>=0) return "🌿";
+    if(l.indexOf("كركديه")>=0) return "🌺";
+    if(l.indexOf("سمسم")>=0 || l.indexOf("سوداني")>=0) return "🥜";
+    return "🌱";
+  }
+
   function renderQr(items){
     qrBox.innerHTML = "";
     if(!items || !items.length){ qrBox.style.display = "none"; return; }
@@ -2928,9 +3223,16 @@ async function startServer() {
     items.forEach(function(label){
       var b = document.createElement("button");
       b.type = "button";
-      b.textContent = label;
-      b.style.cssText = "background:#fff;color:" + primaryColor + ";border:1px solid " + primaryColor + "40;border-radius:9px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;";
-      b.onclick = function(){ sendMsg(label); };
+      var icon = getWidgetIcon(label);
+      b.innerHTML = '<span style="margin-left:5px;font-size:13px;display:inline-block;vertical-align:middle;">' + icon + '</span><span style="vertical-align:middle;">' + escHtml(label) + '</span>';
+      b.style.cssText = "display:inline-flex;align-items:center;background:#fff;color:" + primaryColor + ";border:1px solid " + primaryColor + "40;border-radius:9px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;";
+      b.onclick = function(){
+        if(label.indexOf("فحص صورة")>=0 || label.indexOf("Scan Another Photo")>=0 || label.indexOf("Weiteres Foto")>=0){
+          fileInp.click();
+          return;
+        }
+        sendMsg(label);
+      };
       qrBox.appendChild(b);
     });
   }
@@ -2977,6 +3279,7 @@ async function startServer() {
     if(hasImg){
       pendingImgBase64 = null;
       fileInp.value = "";
+      camFileInp.value = "";
       imgBar.style.display = "none";
     }
     fetch(endpoint, {
@@ -3000,8 +3303,8 @@ async function startServer() {
 
   function initWelcome(){
     msgs.innerHTML = "";
-    addBubble("أهلاً وسهلاً بحضرتك على الموقع الرسمي لـ **" + companyName + "** ومبادرة **اقتصاد المحبة (EoL)** — تقدر تسأل نصياً أو صوتياً أو ترفع صورة ورق النبات لتشخيص الأمراض فوراً!", false);
-    renderQr(${JSON.stringify(MAIN_MENU_SUGGESTIONS)});
+    addBubble("🌿 **" + companyName + "** & **Economy of Love (EoL)**\\nGerman-Egyptian Project (BMZ · bbw · sequa)\\n\\nمن فضلك اختر لغة المحادثة / Please select your preferred language / Bitte wählen Sie Ihre Sprache:", false);
+    renderQr(["🇪🇬 العربية (Arabic)", "🇬🇧 English", "🇩🇪 Deutsch (German)"]);
   }
 
   resetBtn.onclick = function(){
@@ -3049,7 +3352,7 @@ async function startServer() {
   form.onsubmit = function(e){
     e.preventDefault();
     var q = inp.value.trim();
-    if(!q) return;
+    if(!q && !pendingImgBase64) return;
     inp.value = "";
     sendMsg(q);
   };

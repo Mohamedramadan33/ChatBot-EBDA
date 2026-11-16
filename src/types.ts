@@ -22,10 +22,13 @@ export interface FarmContext {
   currency: string;
 }
 
+export type AppLanguage = "ar" | "en" | "de";
+
 export type FlowUiMode = "default" | "whatsapp_buttons" | "whatsapp_list";
 
 export interface SessionFlowState {
   mode:
+    | "select_language"
     | "idle"
     | "register"
     | "about"
@@ -34,6 +37,7 @@ export interface SessionFlowState {
     | "crop_flow"
     | "smart_advisor"
     | "general_ai";
+  language?: AppLanguage;
   step?: string;
   crop_submode?: "problem" | "guide";
   category_filter?: string;
@@ -70,6 +74,7 @@ export interface EvaluationMetricsOverview {
   channels_breakdown: {
     whatsapp: number;
     messenger: number;
+    instagram: number;
     widget: number;
   };
 }
@@ -93,11 +98,12 @@ export interface ChatMessageRecord {
 
 export interface SessionRecord {
   session_id: string;
-  channel: "widget" | "whatsapp" | "messenger";
+  channel: "widget" | "whatsapp" | "messenger" | "instagram";
   external_user_id: string;
   profile_name: string;
   farm_context: FarmContext;
   flow_state?: SessionFlowState;
+  language?: AppLanguage;
   messages: ChatMessageRecord[];
   created_at: string;
   updated_at: string;
@@ -105,7 +111,7 @@ export interface SessionRecord {
 
 export interface SessionSummaryItem {
   session_id: string;
-  channel: "widget" | "whatsapp" | "messenger";
+  channel: "widget" | "whatsapp" | "messenger" | "instagram";
   external_user_id: string;
   profile_name: string;
   farm_context: FarmContext;
@@ -169,7 +175,7 @@ export interface FeedbackOverview {
 
 export interface WebhookLogEntry {
   id: string;
-  channel: "whatsapp" | "messenger" | "widget";
+  channel: "whatsapp" | "messenger" | "instagram" | "widget";
   method: "GET" | "POST";
   endpoint: string;
   status_code: number;
@@ -216,7 +222,7 @@ export interface GovernorateItem {
 export interface MemberRegistrationRecord {
   registration_id: string;
   session_id: string;
-  channel: "whatsapp" | "messenger" | "widget";
+  channel: "whatsapp" | "messenger" | "instagram" | "widget";
   full_name: string;
   phone: string;
   phone_e164?: string;

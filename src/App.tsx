@@ -16,6 +16,7 @@ import {
   FileSpreadsheet,
   Globe,
   Home,
+  ImagePlus,
   Link2,
   List,
   LogOut,
@@ -25,10 +26,13 @@ import {
   RotateCcw,
   Search,
   Send,
+  Sparkles,
   Sprout,
   Square,
+  SwitchCamera,
   ThumbsDown,
   ThumbsUp,
+  Upload,
   Volume2,
   X,
 } from "lucide-react";
@@ -43,8 +47,15 @@ import type {
   PlantDatabaseItem,
   SessionFlowState,
 } from "./types";
+import { getChoiceIcon, stripLeadingEmoji, shortenChoiceTitle } from "./choiceIcons";
 
-type ChannelMode = "whatsapp" | "messenger" | "widget";
+type ChannelMode = "whatsapp" | "messenger" | "instagram" | "widget";
+
+export const INITIAL_LANGUAGE_CHOICES: string[] = [
+  "🇪🇬 العربية (Arabic)",
+  "🇬🇧 English",
+  "🇩🇪 Deutsch (German)",
+];
 
 const MAIN_STARTER_LABELS: string[] = [
   "تسجيل في الجمعية (EBDA)",
@@ -55,113 +66,21 @@ const MAIN_STARTER_LABELS: string[] = [
   "ترشيح أنسب محصول لأرضي",
   "دليل زراعة محصول كامل",
   "أخرى (سؤال آخر)",
+  "🌐 تغيير اللغة (Language)",
 ];
 
 const OPENING_GREETING_BY_CHANNEL: Record<ChannelMode, string> = {
   whatsapp:
-    "أهلاً وسهلاً بيك في *الجمعية المصرية للزراعة الحيوية (EBDA)* ومبادرة *اقتصاد المحبة*، نقدر نساعدك إزاي؟",
+    "🌿 *الجمعية المصرية للزراعة الحيوية (EBDA)* & *Economy of Love*\nGerman-Egyptian Project (BMZ · bbw · sequa)\n\nمن فضلك اختر لغة المحادثة:\nPlease select your preferred language:\nBitte wählen Sie Ihre Sprache:",
   messenger:
-    "أهلاً وسهلاً بيك في الجمعية المصرية للزراعة الحيوية (EBDA) ومبادرة اقتصاد المحبة، نقدر نساعدك إزاي؟",
+    "🌿 الجمعية المصرية للزراعة الحيوية (EBDA) & Economy of Love\nGerman-Egyptian Project (BMZ · bbw · sequa)\n\nمن فضلك اختر لغة المحادثة:\nPlease select your preferred language:\nBitte wählen Sie Ihre Sprache:",
+  instagram:
+    "🌿 الجمعية المصرية للزراعة الحيوية (EBDA) & Economy of Love\nGerman-Egyptian Project (BMZ · bbw · sequa)\n\nمن فضلك اختر لغة المحادثة:\nPlease select your preferred language:\nBitte wählen Sie Ihre Sprache:",
   widget:
-    "أهلاً وسهلاً بحضرتك على الموقع الرسمي لـ **الجمعية المصرية للزراعة الحيوية (EBDA)** ومبادرة **اقتصاد المحبة (Economy of Love)** — يسعدنا مساعدتك في الاستشارات العضوية، ترشيح المحاصيل، أو تسجيل مزرعتك. نقدر نساعدك إزاي النهارده؟",
+    "🌿 **الجمعية المصرية للزراعة الحيوية (EBDA)** & **Economy of Love**\nGerman-Egyptian Project (BMZ · bbw · sequa)\n\nمن فضلك اختر لغة المحادثة:\nPlease select your preferred language:\nBitte wählen Sie Ihre Sprache:",
 };
 
-const UI_CHOICE_SHORT_20: Record<string, string> = {
-  "تسجيل في الجمعية (EBDA)": "تسجيل بالجمعية",
-  "عن الجمعية واقتصاد المحبة": "عن الجمعية والمحبة",
-  "موضوعات الزراعة العضوية": "موضوعات العضوية",
-  "الأسئلة الشائعة (FAQs)": "الأسئلة الشائعة",
-  "هل توجد مشكلة في محصول؟": "مشكلة في محصول؟",
-  "ترشيح أنسب محصول لأرضي": "ترشيح محصول لأرضي",
-  "دليل زراعة محصول كامل": "دليل زراعة محصول",
-  "أخرى (سؤال آخر)": "أخرى (سؤال آخر)",
-  "أخرى (نبات غير موجود)": "نبات آخر غير موجود",
-  "أخرى (سؤال آخر عن المحصول)": "سؤال آخر عن المحصول",
-  "أخرى (محصول أو سؤال آخر)": "محصول أو سؤال آخر",
-  "إرشادات عامة للزراعة العضوية": "إرشادات عضوية عامة",
-  "توصيات موضوعات لمحصول محدد": "توصيات لمحصول محدد",
-  "تطبيق موضوع على محصول محدد": "تطبيق على محصول",
-  "تطبيق هذا الموضوع على محصول محدد": "تطبيق على محصول",
-  "رجوع للموضوعات العامة": "الموضوعات العامة",
-  "شهادة اقتصاد المحبة وشهادات الكربون": "اقتصاد المحبة EoL",
-  "التدريبات العملية للمزارعين": "تدريبات المزارعين",
-  "كيف يستفيد المزارع من الجمعية؟": "فوائد الانضمام",
-  "قواعد الزراعة الحيوية وديميتر": "قواعد ديميتر",
-  "إزاي أسوق المنتجات العضوية والحيوية؟": "تسويق المنتج العضوي",
-  "عرض باقي الأسئلة الشائعة (7–11)": "باقي الأسئلة (7-11)",
-  "رجوع للأسئلة الشائعة (1–6)": "الأسئلة (1-6)",
-  "عرض باقي محاصيل القسم": "باقي محاصيل القسم",
-  "الرجوع لأول القسم": "أول القسم",
-  "رجوع لأقسام المحاصيل": "أقسام المحاصيل",
-  "قسم النباتات الطبية والعطرية": "طبية وعطرية",
-  "قسم المحاصيل الحقلية": "محاصيل حقلية",
-  "قسم أشجار الفاكهة": "أشجار الفاكهة",
-  "قسم المحاصيل الزيتية والجذرية": "زيتية وجذرية",
-  "إصابة حشرية في المحصول": "إصابة حشرية",
-  "إصابة فطرية أو أعفان": "فطريات أو أعفان",
-  "ضعف نمو أو تسميد حيوي": "ضعف نمو أو تسميد",
-  "مشكلة في الري أو الملوحة": "الري أو الملوحة",
-  "مشكلة حشائش في الأرض": "مشكلة الحشائش",
-  "1. الاحتياجات البيئية": "1. البيئة والتربة",
-  "2. البذور والزراعة وتجهيز الأرض": "2. البذور والزراعة",
-  "3. الري والملوحة وتحاليل المياه": "3. الري والملوحة",
-  "4. التسميد والكمبوست ومنافذ الشراء": "4. التسميد الحيوي",
-  "5. المكافحة الحيوية والحشائش": "5. المكافحة الحيوية",
-  "6. طرق ومواعيد الحصاد": "6. طرق الحصاد",
-  "7. ما بعد الحصاد والتخزين والتسويق": "7. ما بعد الحصاد",
-  "تأكيد وإرسال التسجيل": "تأكيد التسجيل",
-};
 
-const UI_CHOICE_SHORT_24: Record<string, string> = {
-  "عن الجمعية واقتصاد المحبة": "عن الجمعية والمحبة",
-  "أخرى (سؤال آخر عن المحصول)": "سؤال آخر عن المحصول",
-  "إرشادات عامة للزراعة العضوية": "إرشادات عضوية عامة",
-  "تطبيق موضوع على محصول محدد": "تطبيق على محصول محدد",
-  "تطبيق هذا الموضوع على محصول محدد": "تطبيق على محصول محدد",
-  "شهادة اقتصاد المحبة وشهادات الكربون": "اقتصاد المحبة والكربون",
-  "التدريبات العملية للمزارعين": "تدريبات عملية للمزارعين",
-  "كيف يستفيد المزارع من الجمعية؟": "كيف يستفيد المزارع؟",
-  "قواعد الزراعة الحيوية وديميتر": "قواعد الحيوية وديميتر",
-  "إزاي أسوق المنتجات العضوية والحيوية؟": "تسويق المنتجات العضوية",
-  "عرض باقي الأسئلة الشائعة (7–11)": "باقي الأسئلة (7–11)",
-  "رجوع للأسئلة الشائعة (1–6)": "الأسئلة الشائعة (1–6)",
-  "قسم النباتات الطبية والعطرية": "النباتات الطبية والعطرية",
-  "قسم المحاصيل الزيتية والجذرية": "المحاصيل الزيتية والجذرية",
-  "2. البذور والزراعة وتجهيز الأرض": "2. البذور وتجهيز الأرض",
-  "3. الري والملوحة وتحاليل المياه": "3. الري والملوحة والمياه",
-  "4. التسميد والكمبوست ومنافذ الشراء": "4. التسميد والكمبوست",
-  "5. المكافحة الحيوية والحشائش": "5. المكافحة والحشائش",
-  "7. ما بعد الحصاد والتخزين والتسويق": "7. الحصاد والتسويق",
-};
-
-function shortenChoiceTitleUi(rawLabel: string, maxLen: number): string {
-  const clean = rawLabel.replace(/\s+/g, " ").trim();
-  if (clean.length <= maxLen) return clean;
-  if (maxLen <= 20 && UI_CHOICE_SHORT_20[clean] && UI_CHOICE_SHORT_20[clean].length <= maxLen) {
-    return UI_CHOICE_SHORT_20[clean];
-  }
-  if (maxLen <= 24 && UI_CHOICE_SHORT_24[clean] && UI_CHOICE_SHORT_24[clean].length <= maxLen) {
-    return UI_CHOICE_SHORT_24[clean];
-  }
-  if (UI_CHOICE_SHORT_20[clean] && UI_CHOICE_SHORT_20[clean].length <= maxLen) {
-    return UI_CHOICE_SHORT_20[clean];
-  }
-  if (clean.startsWith("دليل زراعة ")) {
-    const cropPart = clean.replace(/^دليل زراعة\s+/, "").replace(/\s*\(.*?\)/g, "").trim();
-    const cand = `دليل ${cropPart}`;
-    if (cand.length <= maxLen) return cand;
-  }
-  const withoutParens = clean.replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
-  if (withoutParens.length >= 4 && withoutParens.length <= maxLen) return withoutParens;
-  const source = withoutParens.length >= 4 ? withoutParens : clean;
-  const budget = Math.max(4, maxLen - 1);
-  const slice = source.slice(0, budget + 1);
-  const lastSpace = slice.lastIndexOf(" ");
-  if (lastSpace >= Math.floor(maxLen * 0.45)) {
-    return `${slice.slice(0, lastSpace).replace(/[،,:.\-؟?]+$/, "").trim()}…`;
-  }
-  return `${source.slice(0, budget).trim()}…`;
-}
 
 function renderWhatsAppFormattedText(rawText: string): React.ReactNode {
   const normalized = rawText.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
@@ -226,7 +145,7 @@ const CHANNELS: Array<{
   {
     id: "messenger",
     label: "فيسبوك ماسنجر (Facebook)",
-    subLabel: "رسائل الصفحة الرسمية — نص عربي صافي بدون رموز Markdown + أزرار رد سريع",
+    subLabel: "رسائل الصفحة الرسمية — نص صافي بدون Markdown + أزرار رد سريع",
     sessionId: "messenger:live-test",
     accentBg: "bg-[#1D4ED8]",
     accentHover: "hover:bg-[#1E40AF]",
@@ -234,6 +153,18 @@ const CHANNELS: Array<{
     userBubbleText: "text-white",
     canvasBg: "bg-[#F4F6FB]",
     placeholder: "اكتب رسالتك على فيسبوك ماسنجر أو اختر من الأزرار السريعة...",
+  },
+  {
+    id: "instagram",
+    label: "إنستجرام (Instagram DM)",
+    subLabel: "رسائل إنستجرام المباشرة — بحد أقصى 1000 حرف + رد سريع + تحليل الصور",
+    sessionId: "instagram:live-test",
+    accentBg: "bg-[#C13584]",
+    accentHover: "hover:bg-[#A3296E]",
+    userBubbleBg: "bg-[#C13584]",
+    userBubbleText: "text-white",
+    canvasBg: "bg-[#FDF4F8]",
+    placeholder: "اكتب رسالتك على إنستجرام DM أو أرسل صورة النبات...",
   },
   {
     id: "widget",
@@ -263,6 +194,7 @@ export default function App() {
   >({
     whatsapp: [],
     messenger: [],
+    instagram: [],
     widget: [],
   });
   const [flowByChannel, setFlowByChannel] = useState<
@@ -270,6 +202,7 @@ export default function App() {
   >({
     whatsapp: { mode: "idle" },
     messenger: { mode: "idle" },
+    instagram: { mode: "idle" },
     widget: { mode: "idle" },
   });
   const [waListExpanded, setWaListExpanded] = useState(true);
@@ -327,14 +260,24 @@ export default function App() {
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Vision Prediction / Plant Leaf Image Upload State
+  // Vision Prediction / Plant Leaf Image Upload & Live Camera State
   const [selectedImage, setSelectedImage] = useState<{
     base64: string;
     mime: string;
     previewUrl: string;
     name: string;
   } | null>(null);
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment");
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraCaption, setCameraCaption] = useState("");
+  const [dragOverChat, setDragOverChat] = useState(false);
+
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const cameraCaptureInputRef = useRef<HTMLInputElement>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -452,10 +395,10 @@ export default function App() {
     return null;
   }, [currentMessages]);
 
-  // Active choices ALWAYS available from turn 0, while respecting explicit [] during open smart-advisor questions
+  // Active choices ALWAYS available from turn 0 (starting with language choice: Arabic, English, German)
   const activeChoices: string[] = useMemo(() => {
     if (currentMessages.length === 0) {
-      return MAIN_STARTER_LABELS;
+      return INITIAL_LANGUAGE_CHOICES;
     }
     if (lastAssistantMsg && Array.isArray(lastAssistantMsg.quick_replies)) {
       return lastAssistantMsg.quick_replies;
@@ -599,7 +542,7 @@ export default function App() {
             ],
           }),
         });
-      } else if (targetChannel === "messenger") {
+      } else if (targetChannel === "messenger" || targetChannel === "instagram") {
         const messagePayload = hasImage
           ? {
               mid: `m_${Date.now()}`,
@@ -616,20 +559,23 @@ export default function App() {
             }
           : { mid: `m_${Date.now()}`, text };
 
-        res = await fetch("/webhooks/messenger", {
+        const webhookUrl = targetChannel === "instagram" ? "/webhooks/instagram" : "/webhooks/messenger";
+        const accountId = targetChannel === "instagram" ? "IG_ORGANIC_LIVE" : "PAGE_ORGANIC_LIVE";
+
+        res = await fetch(webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify({
-            object: "page",
+            object: targetChannel === "instagram" ? "instagram" : "page",
             entry: [
               {
-                id: "PAGE_ORGANIC_LIVE",
+                id: accountId,
                 time: Date.now(),
                 messaging: [
                   {
                     sender: { id: "live-test" },
-                    recipient: { id: "PAGE_ORGANIC_LIVE" },
+                    recipient: { id: accountId },
                     timestamp: Date.now(),
                     message: messagePayload,
                   },
@@ -709,28 +655,224 @@ export default function App() {
     }
   };
 
-  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const mime = file.type || "image/jpeg";
+  const compressImageDataUrl = (dataUrl: string): Promise<{ base64: string; mime: string; previewUrl: string }> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1280;
+        let w = img.width || 800;
+        let h = img.height || 600;
+        if (w > maxDim || h > maxDim) {
+          if (w >= h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const outUrl = canvas.toDataURL("image/jpeg", 0.86);
+          const base64 = outUrl.includes(",") ? outUrl.split(",")[1] : outUrl;
+          resolve({ base64, mime: "image/jpeg", previewUrl: outUrl });
+          return;
+        }
+        const rawBase64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+        resolve({ base64: rawBase64, mime: "image/jpeg", previewUrl: dataUrl });
+      };
+      img.onerror = () => {
+        const rawBase64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+        resolve({ base64: rawBase64, mime: "image/jpeg", previewUrl: dataUrl });
+      };
+      img.src = dataUrl;
+    });
+  };
+
+  const processSelectedImageFile = (file: File) => {
+    if (!file || !file.type.startsWith("image/")) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const res = String(event.target?.result || "");
-      const base64 = res.includes(",") ? res.split(",")[1] : res;
+      if (!res) return;
+      const compressed = await compressImageDataUrl(res);
       setSelectedImage({
-        base64,
-        mime,
-        previewUrl: res,
-        name: file.name,
+        base64: compressed.base64,
+        mime: compressed.mime,
+        previewUrl: compressed.previewUrl,
+        name: file.name || "plant-photo.jpg",
       });
     };
     reader.readAsDataURL(file);
   };
 
+  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processSelectedImageFile(file);
+  };
+
   const clearSelectedImage = () => {
     setSelectedImage(null);
-    if (imageInputRef.current) {
-      imageInputRef.current.value = "";
+    if (imageInputRef.current) imageInputRef.current.value = "";
+    if (cameraCaptureInputRef.current) cameraCaptureInputRef.current.value = "";
+  };
+
+  const stopCameraStream = useCallback(() => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((t) => t.stop());
+      cameraStreamRef.current = null;
+    }
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = null;
+    }
+    setCameraReady(false);
+  }, []);
+
+  const startCameraStream = useCallback(
+    async (facing: "environment" | "user") => {
+      stopCameraStream();
+      setCameraError(null);
+      setCameraReady(false);
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError("المتصفح الحالي لا يدعم فتح الكاميرا المباشرة — يمكنك التصوير بكاميرا الموبايل أو رفع صورة من جهازك.");
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: facing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+        cameraStreamRef.current = stream;
+        if (cameraVideoRef.current) {
+          cameraVideoRef.current.srcObject = stream;
+          await cameraVideoRef.current.play().catch(() => {});
+          setCameraReady(true);
+        }
+      } catch (err) {
+        console.warn("Camera stream fallback:", err);
+        setCameraError(
+          "تعذر فتح الكاميرا المباشرة (تأكد من السماح بصلاحية الكاميرا أو توصيل كاميرا). يمكنك استخدام زر التصوير الفوري أو رفع صورة من جهازك بالأسفل."
+        );
+      }
+    },
+    [stopCameraStream]
+  );
+
+  const openCameraModal = () => {
+    setCameraCaption("");
+    setCameraModalOpen(true);
+    setTimeout(() => {
+      startCameraStream(cameraFacing);
+    }, 60);
+  };
+
+  const closeCameraModal = useCallback(() => {
+    stopCameraStream();
+    setCameraModalOpen(false);
+    setCameraError(null);
+  }, [stopCameraStream]);
+
+  useEffect(() => {
+    return () => {
+      stopCameraStream();
+    };
+  }, [stopCameraStream]);
+
+  const toggleCameraFacing = () => {
+    const nextFacing = cameraFacing === "environment" ? "user" : "environment";
+    setCameraFacing(nextFacing);
+    startCameraStream(nextFacing);
+  };
+
+  const captureCameraFrame = async (analyzeImmediately: boolean) => {
+    const video = cameraVideoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) return;
+
+    const maxDim = 1280;
+    let w = video.videoWidth;
+    let h = video.videoHeight;
+    if (w > maxDim || h > maxDim) {
+      if (w >= h) {
+        h = Math.round((h * maxDim) / w);
+        w = maxDim;
+      } else {
+        w = Math.round((w * maxDim) / h);
+        h = maxDim;
+      }
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, w, h);
+
+    const previewUrl = canvas.toDataURL("image/jpeg", 0.88);
+    const base64 = previewUrl.includes(",") ? previewUrl.split(",")[1] : previewUrl;
+    const captionToSend =
+      cameraCaption.trim() ||
+      (activeFlow?.language === "en"
+        ? "Analyze this photo, identify the plant/disease/issue, and provide a 100% organic solution 🌿"
+        : activeFlow?.language === "de"
+        ? "Analysiere dieses Foto, erkenne Pflanze/Krankheit und gib eine 100% ökologische Lösung 🌿"
+        : "حلل الصورة الملتقطة وشخص أي مرض أو آفة أو حالة نباتية وقدم الحل العضوي 100% 🌿");
+
+    closeCameraModal();
+
+    if (analyzeImmediately) {
+      await sendLiveMessage(captionToSend, {
+        imageBase64: base64,
+        imageMime: "image/jpeg",
+      });
+    } else {
+      setSelectedImage({
+        base64,
+        mime: "image/jpeg",
+        previewUrl,
+        name: `camera-${Date.now()}.jpg`,
+      });
+      if (cameraCaption.trim()) {
+        setInput(cameraCaption.trim());
+      }
+    }
+  };
+
+  const handleQuickChoiceClick = (label: string) => {
+    const low = label.toLowerCase();
+    if (
+      low.includes("فحص صورة أخرى") ||
+      low.includes("فحص صورة تانية") ||
+      low.includes("scan another photo") ||
+      low.includes("weiteres foto prüfen")
+    ) {
+      openCameraModal();
+      return;
+    }
+    sendLiveMessage(label);
+  };
+
+  const handleChatPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          processSelectedImageFile(file);
+          break;
+        }
+      }
     }
   };
 
@@ -1141,6 +1283,7 @@ export default function App() {
   const origin = window.location.origin;
   const waWebhookUrl = `${origin}/webhooks/whatsapp`;
   const fbWebhookUrl = `${origin}/webhooks/messenger`;
+  const igWebhookUrl = `${origin}/webhooks/instagram`;
   const webScriptSnippet = `<script src="${origin}/agripulse-widget.js" data-company-name="${embedCompanyName.replace(
     /"/g,
     "&quot;"
@@ -1152,7 +1295,7 @@ export default function App() {
     if (channel === "whatsapp") {
       return renderWhatsAppFormattedText(rawContent);
     }
-    if (channel === "messenger") {
+    if (channel === "messenger" || channel === "instagram") {
       return (
         <div className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-[#050505]">
           {rawContent}
@@ -1176,17 +1319,22 @@ export default function App() {
           <div className="flex justify-end">
             <div className="w-full max-w-md space-y-1.5">
               {choices.map((label) => {
-                const shortTitle = shortenChoiceTitleUi(label, 20);
+                const icon = getChoiceIcon(label);
+                const clean = stripLeadingEmoji(label);
+                const shortTitle = shortenChoiceTitle(clean, 17);
                 return (
                   <button
                     key={label}
                     type="button"
-                    title={label}
-                    onClick={() => sendLiveMessage(label)}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#D9D9D4] bg-white px-4 py-2.5 text-sm font-semibold text-[#008069] shadow-2xs hover:bg-[#F5FBF9] transition-colors"
+                    title={clean}
+                    onClick={() => handleQuickChoiceClick(label)}
+                    className="flex w-full items-center justify-between gap-2.5 rounded-xl border border-[#D9D9D4] bg-white px-4 py-2.5 text-sm font-semibold text-[#008069] shadow-2xs hover:bg-[#F5FBF9] transition-colors"
                   >
-                    <CornerUpLeft className="h-4 w-4 shrink-0" />
-                    <span>{shortTitle}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-base shrink-0">{icon}</span>
+                      <span className="truncate">{shortTitle}</span>
+                    </div>
+                    <CornerUpLeft className="h-4 w-4 shrink-0 opacity-70" />
                   </button>
                 );
               })}
@@ -1210,22 +1358,27 @@ export default function App() {
             {waListExpanded && (
               <div className="divide-y divide-[#F0F2F5] bg-white">
                 {choices.map((label) => {
-                  const rowTitle = shortenChoiceTitleUi(label, 24);
-                  const showSubtitle = rowTitle !== label;
+                  const icon = getChoiceIcon(label);
+                  const clean = stripLeadingEmoji(label);
+                  const rowTitle = shortenChoiceTitle(clean, 21);
+                  const showSubtitle = rowTitle !== clean;
                   return (
                     <button
                       key={label}
                       type="button"
-                      onClick={() => sendLiveMessage(label)}
+                      onClick={() => handleQuickChoiceClick(label)}
                       className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-right text-sm text-[#111B21] hover:bg-[#F5FBF9] transition-colors group"
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold group-hover:text-[#008069] truncate">
-                          {rowTitle}
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <span className="text-base shrink-0">{icon}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold group-hover:text-[#008069] truncate">
+                            {rowTitle}
+                          </div>
+                          {showSubtitle && (
+                            <div className="text-[11px] text-[#667781] truncate mt-0.5">{clean}</div>
+                          )}
                         </div>
-                        {showSubtitle && (
-                          <div className="text-[11px] text-[#667781] truncate mt-0.5">{label}</div>
-                        )}
                       </div>
                       <span className="h-4 w-4 shrink-0 rounded-md border-2 border-[#8696A0] group-hover:border-[#008069]" />
                     </button>
@@ -1238,21 +1391,29 @@ export default function App() {
       );
     }
 
-    // 2. Facebook Messenger Quick Replies (<=20 char titles + full payload on click)
-    if (channel === "messenger") {
+    // 2. Facebook Messenger & Instagram DM Quick Replies (<=20 char titles + full payload on click)
+    if (channel === "messenger" || channel === "instagram") {
+      const isIg = channel === "instagram";
       return (
         <div className="flex flex-wrap justify-end gap-2 pt-1">
           {choices.map((label) => {
-            const fbShort = shortenChoiceTitleUi(label, 20);
+            const icon = getChoiceIcon(label);
+            const clean = stripLeadingEmoji(label);
+            const fbShort = shortenChoiceTitle(clean, 17);
             return (
               <button
                 key={label}
                 type="button"
-                title={label}
-                onClick={() => sendLiveMessage(label)}
-                className="rounded-xl border border-[#1D4ED8]/40 bg-white px-3.5 py-2 text-xs font-semibold text-[#1D4ED8] hover:bg-[#1D4ED8] hover:text-white transition-colors shadow-2xs"
+                title={clean}
+                onClick={() => handleQuickChoiceClick(label)}
+                className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-3.5 py-2 text-xs font-semibold transition-colors shadow-2xs ${
+                  isIg
+                    ? "border-[#C13584]/40 text-[#C13584] hover:bg-[#C13584] hover:text-white"
+                    : "border-[#1D4ED8]/40 text-[#1D4ED8] hover:bg-[#1D4ED8] hover:text-white"
+                }`}
               >
-                {fbShort}
+                <span className="text-sm shrink-0">{icon}</span>
+                <span>{fbShort}</span>
               </button>
             );
           })}
@@ -1263,16 +1424,21 @@ export default function App() {
     // 3. Company / Association Website Rich Choices
     return (
       <div className="flex flex-wrap justify-end gap-1.5 pt-1">
-        {choices.map((label) => (
-          <button
-            key={label}
-            type="button"
-            onClick={() => sendLiveMessage(label)}
-            className="rounded-xl border border-[#166534]/35 bg-white px-3 py-1.5 text-xs font-semibold text-[#166534] hover:bg-[#166534] hover:text-white transition-colors shadow-2xs"
-          >
-            {label}
-          </button>
-        ))}
+        {choices.map((label) => {
+          const icon = getChoiceIcon(label);
+          const clean = stripLeadingEmoji(label);
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => handleQuickChoiceClick(label)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#166534]/35 bg-white px-3 py-1.5 text-xs font-semibold text-[#166534] hover:bg-[#166534] hover:text-white transition-colors shadow-2xs"
+            >
+              <span className="text-sm shrink-0">{icon}</span>
+              <span>{clean}</span>
+            </button>
+          );
+        })}
       </div>
     );
   };
@@ -1314,6 +1480,49 @@ export default function App() {
               </button>
             );
           })}
+        </div>
+
+        {/* Multilingual Selector: 🇪🇬 عربي | 🇬🇧 English | 🇩🇪 Deutsch */}
+        <div className="flex items-center gap-1 rounded-lg border border-[#E5E5E0] bg-[#FAF9F6] p-1 shrink-0">
+          <button
+            type="button"
+            title="العربية (Arabic)"
+            onClick={() => sendLiveMessage("العربية")}
+            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              activeFlow?.language === "ar" || !activeFlow?.language
+                ? "bg-[#166534] text-white shadow-xs"
+                : "text-[#57534E] hover:text-[#18181B] hover:bg-white"
+            }`}
+          >
+            <span>🇪🇬</span>
+            <span>عربي</span>
+          </button>
+          <button
+            type="button"
+            title="English"
+            onClick={() => sendLiveMessage("English")}
+            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              activeFlow?.language === "en"
+                ? "bg-[#166534] text-white shadow-xs"
+                : "text-[#57534E] hover:text-[#18181B] hover:bg-white"
+            }`}
+          >
+            <span>🇬🇧</span>
+            <span>English</span>
+          </button>
+          <button
+            type="button"
+            title="Deutsch (German)"
+            onClick={() => sendLiveMessage("Deutsch")}
+            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              activeFlow?.language === "de"
+                ? "bg-[#166534] text-white shadow-xs"
+                : "text-[#57534E] hover:text-[#18181B] hover:bg-white"
+            }`}
+          >
+            <span>🇩🇪</span>
+            <span>Deutsch</span>
+          </button>
         </div>
 
         {/* Admin Inspection, KPIs & Integration Actions */}
@@ -1380,13 +1589,15 @@ export default function App() {
         </div>
       </header>
 
-      {/* Channel Context Strip (WhatsApp · Facebook Messenger · Company Website) */}
+      {/* Channel Context Strip (WhatsApp · Facebook Messenger · Instagram · Company Website) */}
       <div
         className={`flex flex-wrap items-center justify-between gap-2 border-b border-[#E5E5E0] px-4 py-2 sm:px-6 text-xs shrink-0 ${
           channel === "whatsapp"
             ? "bg-[#008069] text-white"
             : channel === "messenger"
             ? "bg-[#1D4ED8] text-white"
+            : channel === "instagram"
+            ? "bg-[#C13584] text-white"
             : "bg-[#F3F2EC] text-[#18181B]"
         }`}
       >
@@ -1396,6 +1607,8 @@ export default function App() {
               ? "واتساب للأعمال — الجمعية المصرية للزراعة الحيوية (EBDA)"
               : channel === "messenger"
               ? "فيسبوك ماسنجر — الصفحة الرسمية للجمعية المصرية للزراعة الحيوية"
+              : channel === "instagram"
+              ? "إنستجرام DM — الحساب الرسمي للجمعية المصرية للزراعة الحيوية"
               : `${embedCompanyName} — المساعد الذكي للموقع الإلكتروني`}
           </span>
           <span className="hidden md:inline opacity-80">·</span>
@@ -1573,7 +1786,7 @@ export default function App() {
               <div className="flex justify-end">
                 <div
                   className={`w-full max-w-md rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed shadow-2xs space-y-2 ${
-                    channel === "messenger"
+                    channel === "messenger" || channel === "instagram"
                       ? "bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505]"
                       : "bg-white border border-[#E5E5E0] text-[#111B21]"
                   }`}
@@ -1607,6 +1820,8 @@ export default function App() {
                         ? "WhatsApp"
                         : channel === "messenger"
                         ? "Messenger"
+                        : channel === "instagram"
+                        ? "Instagram"
                         : "Website"}
                     </span>
                   </div>
@@ -1669,7 +1884,7 @@ export default function App() {
                   <div key={msg.message_id} className="flex justify-end">
                     <div
                       className={`w-full max-w-lg rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed shadow-2xs space-y-2.5 ${
-                        channel === "messenger"
+                        channel === "messenger" || channel === "instagram"
                           ? "bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505]"
                           : "bg-white border border-[#E5E5E0] text-[#111B21]"
                       }`}
@@ -1806,22 +2021,23 @@ export default function App() {
                     <img
                       src={selectedImage.previewUrl}
                       alt="صورة النبات المحددة"
-                      className="h-10 w-10 shrink-0 rounded-lg object-cover border border-[#166534]/30"
+                      className="h-11 w-11 shrink-0 rounded-lg object-cover border border-[#166534]/30"
                     />
                     <div className="min-w-0">
-                      <div className="font-bold truncate">صورة نبات جاهزة للتشخيص الفوري 📷</div>
+                      <div className="font-bold truncate">صورة جاهزة للفحص الذكي والعلاج العضوي 🌿</div>
                       <div className="text-[11px] text-[#57534E] truncate">
-                        اضغط إرسال للتشخيص أو اكتب سؤالك أو سجل صوتك
+                        اضغط «تشخيص فوري» أو اكتب سؤالك أو سجل صوتك حول الصورة
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => sendLiveMessage("شخص المرض الظاهر في الصورة وقدم العلاج العضوي 100%")}
-                      className="hidden sm:inline-flex rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-[#166534] border border-[#166534]/30 hover:bg-[#DCFCE7]"
+                      onClick={() => sendLiveMessage("حلل الصورة وشخص المرض أو الحالة وقدم الحل العضوي 100% 🌿")}
+                      className="inline-flex items-center gap-1 rounded-lg bg-[#166534] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#14532D] transition-colors"
                     >
-                      تشخيص فوري 🌿
+                      <Sparkles className="h-3 w-3" />
+                      <span>تشخيص فوري</span>
                     </button>
                     <button
                       type="button"
@@ -1832,6 +2048,12 @@ export default function App() {
                       <X className="h-4 w-4" />
                     </button>
                   </div>
+                </div>
+              )}
+
+              {dragOverChat && (
+                <div className="rounded-xl border-2 border-dashed border-[#166534] bg-[#F0FDF4] px-4 py-2 text-center text-xs font-semibold text-[#166534]">
+                  أفلت الصورة هنا لتحليلها وتشخيصها عضوياً فوراً 📷🌿
                 </div>
               )}
 
@@ -1866,11 +2088,33 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <form onSubmit={handleFormSubmit} className="flex items-center gap-2">
+                <form
+                  onSubmit={handleFormSubmit}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOverChat(true);
+                  }}
+                  onDragLeave={() => setDragOverChat(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOverChat(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) processSelectedImageFile(file);
+                  }}
+                  className="flex items-center gap-1.5 sm:gap-2"
+                >
                   <input
                     ref={imageInputRef}
                     type="file"
                     accept="image/*"
+                    className="hidden"
+                    onChange={handleImageFileSelect}
+                  />
+                  <input
+                    ref={cameraCaptureInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
                     className="hidden"
                     onChange={handleImageFileSelect}
                   />
@@ -1881,10 +2125,10 @@ export default function App() {
                       disabled={sending}
                       onClick={() => sendLiveMessage("القائمة الرئيسية")}
                       title="الرجوع للقائمة الرئيسية"
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#D6D3CD] bg-[#FAF9F6] px-3 py-3 text-xs font-semibold text-[#18181B] hover:bg-[#EFECE6] transition-colors shrink-0 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#D6D3CD] bg-[#FAF9F6] px-2.5 sm:px-3 py-3 text-xs font-semibold text-[#18181B] hover:bg-[#EFECE6] transition-colors shrink-0 disabled:opacity-50"
                     >
                       <Home className="h-4 w-4 text-[#166534]" />
-                      <span className="hidden sm:inline">القائمة الرئيسية</span>
+                      <span className="hidden md:inline">القائمة الرئيسية</span>
                     </button>
                   )}
 
@@ -1898,29 +2142,42 @@ export default function App() {
                     }
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
+                    onPaste={handleChatPaste}
                     disabled={sending}
                     placeholder={
                       selectedImage
-                        ? "اكتب تفاصيل إضافية عن الصورة أو اضغط إرسال فوراً..."
+                        ? "اكتب تفاصيل عن الصورة أو اضغط إرسال للتشخيص العضوي..."
                         : activeFlow.mode === "register" && activeFlow.step === "ask_phone"
                         ? "01012345678"
                         : currentChannelCfg.placeholder
                     }
-                    className="flex-1 rounded-xl border border-[#D6D3CD] bg-[#FAF9F6] px-4 py-3 text-sm text-[#18181B] placeholder:text-[#78716C] focus:border-[#166534] focus:bg-white focus:outline-none disabled:opacity-60"
+                    className="flex-1 min-w-0 rounded-xl border border-[#D6D3CD] bg-[#FAF9F6] px-3.5 py-3 text-sm text-[#18181B] placeholder:text-[#78716C] focus:border-[#166534] focus:bg-white focus:outline-none disabled:opacity-60"
                   />
 
                   <button
                     type="button"
                     disabled={sending}
                     onClick={() => imageInputRef.current?.click()}
-                    title="رفع صورة نبات للتشخيص الفوري وتحديد الأمراض 📷"
-                    className={`inline-flex items-center justify-center rounded-xl border px-3.5 py-3 transition-colors shrink-0 disabled:opacity-45 ${
+                    title="رفع صورة من الجهاز للتشخيص العضوي 🖼️"
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-semibold transition-colors shrink-0 disabled:opacity-45 ${
                       selectedImage
                         ? "border-[#166534] bg-[#F0FDF4] text-[#166534] ring-2 ring-[#166534]/30"
                         : "border-[#D6D3CD] bg-[#FAF9F6] text-[#166534] hover:border-[#166534] hover:bg-[#F0FDF4]"
                     }`}
                   >
+                    <ImagePlus className="h-4 w-4" />
+                    <span className="hidden lg:inline">رفع صورة</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={sending}
+                    onClick={openCameraModal}
+                    title="التصوير بالكاميرا مباشرة وتشخيص المرض عضوياً 📷"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#D6D3CD] bg-[#FAF9F6] px-3 py-3 text-xs font-semibold text-[#166534] hover:border-[#166534] hover:bg-[#F0FDF4] transition-colors shrink-0 disabled:opacity-45"
+                  >
                     <Camera className="h-4 w-4" />
+                    <span className="hidden lg:inline">كاميرا</span>
                   </button>
 
                   <button
@@ -1928,7 +2185,7 @@ export default function App() {
                     disabled={sending}
                     onClick={startVoiceRecording}
                     title="تسجيل رسالة صوتية باللهجة المصرية"
-                    className="inline-flex items-center justify-center rounded-xl border border-[#D6D3CD] bg-[#FAF9F6] px-3.5 py-3 text-[#166534] hover:border-[#166534] hover:bg-[#F0FDF4] transition-colors shrink-0 disabled:opacity-45"
+                    className="inline-flex items-center justify-center rounded-xl border border-[#D6D3CD] bg-[#FAF9F6] px-3 py-3 text-[#166534] hover:border-[#166534] hover:bg-[#F0FDF4] transition-colors shrink-0 disabled:opacity-45"
                   >
                     <Mic className="h-4 w-4" />
                   </button>
@@ -1992,13 +2249,14 @@ export default function App() {
                         key={c}
                         type="button"
                         onClick={() => setModalPlantCategory(c)}
-                        className={`rounded-md px-2 py-1 text-[11px] font-medium ${
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
                           modalPlantCategory === c
                             ? "bg-[#166534] text-white"
                             : "bg-[#EFECE6] text-[#57534E]"
                         }`}
                       >
-                        {c}
+                        {c !== "الكل" && <span>{getChoiceIcon(c)}</span>}
+                        <span>{c}</span>
                       </button>
                     ))}
                   </div>
@@ -2018,7 +2276,10 @@ export default function App() {
                             : "bg-white text-[#18181B] hover:bg-[#EFECE6]"
                         }`}
                       >
-                        <span className="truncate">{p.name}</span>
+                        <span className="truncate flex items-center gap-1.5">
+                          <span className="shrink-0">{getChoiceIcon(p.name)}</span>
+                          <span className="truncate">{p.name}</span>
+                        </span>
                         <span
                           className={`text-[10px] shrink-0 ${
                             selected ? "text-white/85" : "text-[#78716C]"
@@ -2190,6 +2451,8 @@ export default function App() {
                               ? "واتساب"
                               : reg.channel === "messenger"
                               ? "فيسبوك"
+                              : reg.channel === "instagram"
+                              ? "إنستجرام"
                               : "الموقع"}
                           </span>
                           <span aria-hidden="true">·</span>
@@ -2418,7 +2681,7 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <Link2 className="h-5 w-5 text-[#166534]" />
                 <h2 className="text-base font-bold text-[#18181B]">
-                  روابط تشغيل واتساب وفيسبوك والموقع
+                  روابط تشغيل واتساب وفيسبوك وإنستجرام والموقع
                 </h2>
               </div>
               <button
@@ -2433,8 +2696,9 @@ export default function App() {
             <p className="text-xs text-[#57534E] leading-relaxed">
               تتم تهيئة صياغة وتنسيق الردود تلقائياً لتناسب كل منصة: <strong>واتساب</strong> (خط عريض{" "}
               <code className="font-mono">*نص*</code> وحد 1024 حرف وأزرار/قوائم تفاعلية أصلية)،{" "}
-              <strong>فيسبوك ماسنجر</strong> (نص عربي صافي بدون رموز Markdown وأزرار رد سريع Quick Replies)، و
-              <strong>الموقع الرسمي للشركة/الجمعية</strong> (تنسيق غني مع تسجيل صوتي وقراءة صوتية).
+              <strong>فيسبوك ماسنجر</strong> (نص صافي وأزرار رد سريع)،{" "}
+              <strong>إنستجرام DM</strong> (بحد أقصى 1000 حرف ورد سريع وفحص الصور)، و
+              <strong>الموقع الرسمي للشركة/الجمعية</strong> (تنسيق غني مع كاميرا وصوت).
             </p>
 
             {/* WhatsApp */}
@@ -2519,12 +2783,53 @@ export default function App() {
               </div>
             </div>
 
+            {/* Instagram DM */}
+            <div className="rounded-xl border border-[#E5E5E0] bg-[#FAF9F6] p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#C13584]">
+                  <MessageCircle className="h-4 w-4" />
+                  <span>3. إنستجرام (Instagram DM Messaging Webhook)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copyText("ig", igWebhookUrl)}
+                  className="inline-flex items-center gap-1 rounded-md border border-[#E5E5E0] bg-white px-2.5 py-1 text-xs font-medium hover:bg-[#EFECE6]"
+                >
+                  {copiedKey === "ig" ? (
+                    <Check className="h-3.5 w-3.5 text-[#166534]" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                  <span>{copiedKey === "ig" ? "تم النسخ" : "نسخ الرابط"}</span>
+                </button>
+              </div>
+              <div
+                dir="ltr"
+                className="rounded-lg bg-white px-3 py-2 font-mono text-xs text-[#18181B] border border-[#E5E5E0] break-all"
+              >
+                {igWebhookUrl}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-[#57534E]">
+                <span>
+                  Verify Token:{" "}
+                  <code className="font-mono text-[#18181B]">agripulse_ig_verify_2026</code>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copyText("ig_tok", "agripulse_ig_verify_2026")}
+                  className="text-[#C13584] hover:underline"
+                >
+                  {copiedKey === "ig_tok" ? "تم نسخ التوكن" : "نسخ التوكن"}
+                </button>
+              </div>
+            </div>
+
             {/* Company / Association Website Embed */}
             <div className="rounded-xl border border-[#E5E5E0] bg-[#FAF9F6] p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#166534]">
                   <Globe className="h-4 w-4" />
-                  <span>3. الموقع الخاص بالشركة / الجمعية (كود التضمين الجاهز)</span>
+                  <span>4. الموقع الخاص بالشركة / الجمعية (كود التضمين الجاهز)</span>
                 </span>
                 <button
                   type="button"
@@ -2698,9 +3003,9 @@ export default function App() {
 
                   <div className="rounded-xl border border-[#E5E5E0] bg-[#FAF9F6] p-4 space-y-2">
                     <div className="font-bold text-[#18181B]">
-                      توزيع الاستفسارات عبر القنوات (واتساب · فيسبوك ماسنجر · الموقع)
+                      توزيع الاستفسارات عبر القنوات (واتساب · فيسبوك · إنستجرام · الموقع)
                     </div>
-                    <div className="grid grid-cols-3 gap-2 pt-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                       <div className="rounded-lg border border-[#E5E5E0] bg-white p-2.5">
                         <div className="text-[#008069] font-semibold">واتساب (WhatsApp)</div>
                         <div className="text-sm font-bold font-mono tabular-nums mt-0.5">
@@ -2711,6 +3016,12 @@ export default function App() {
                         <div className="text-[#1D4ED8] font-semibold">فيسبوك (Messenger)</div>
                         <div className="text-sm font-bold font-mono tabular-nums mt-0.5">
                           {metrics?.channels_breakdown.messenger ?? 0} استفسار
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-[#E5E5E0] bg-white p-2.5">
+                        <div className="text-[#C13584] font-semibold">إنستجرام (Instagram)</div>
+                        <div className="text-sm font-bold font-mono tabular-nums mt-0.5">
+                          {metrics?.channels_breakdown.instagram ?? 0} استفسار
                         </div>
                       </div>
                       <div className="rounded-lg border border-[#E5E5E0] bg-white p-2.5">
@@ -2804,6 +3115,140 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 6: Live Camera Capture & Smart Organic Plant Photo Scanner */}
+      {cameraModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4">
+          <div className="flex max-h-[92vh] w-full max-w-xl flex-col rounded-2xl border border-[#E5E5E0] bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-[#E5E5E0] px-5 py-3.5 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#F0FDF4] text-[#166534]">
+                  <Camera className="h-4 w-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-[#18181B]">
+                    التصوير المباشر وتحليل النبات والأمراض (Organic AI Vision)
+                  </h2>
+                  <p className="text-[11px] text-[#57534E]">
+                    صوّر ورقة النبات أو الآفة أو الثمرة في إضاءة واضحة للحصول على التشخيص والعلاج العضوي 100%
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeCameraModal}
+                className="rounded-lg p-1.5 text-[#57534E] hover:bg-[#EFECE6]"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 overflow-y-auto">
+              <div className="relative overflow-hidden rounded-xl border border-[#E5E5E0] bg-zinc-950 aspect-video flex items-center justify-center">
+                <video
+                  ref={cameraVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`h-full w-full object-cover ${cameraError ? "hidden" : ""}`}
+                />
+                {!cameraReady && !cameraError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white/85 text-xs">
+                    <RefreshCw className="h-5 w-5 animate-spin" />
+                    <span>جاري تشغيل الكاميرا...</span>
+                  </div>
+                )}
+                {cameraError && (
+                  <div className="p-5 text-center space-y-3 max-w-md">
+                    <div className="text-xs text-amber-200 leading-relaxed">{cameraError}</div>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => cameraCaptureInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-[#166534] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#14532D]"
+                      >
+                        <Camera className="h-3.5 w-3.5" />
+                        <span>التقاط بكاميرا الجهاز</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeCameraModal();
+                          imageInputRef.current?.click();
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-2 text-xs font-semibold text-[#18181B] hover:bg-zinc-100"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        <span>رفع صورة من الملفات</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {cameraReady && !cameraError && (
+                  <button
+                    type="button"
+                    onClick={toggleCameraFacing}
+                    title="تبديل الكاميرا (أمامية / خلفية)"
+                    className="absolute top-3 left-3 inline-flex items-center gap-1.5 rounded-lg bg-black/55 px-2.5 py-1.5 text-[11px] font-medium text-white backdrop-blur-xs hover:bg-black/75 transition-colors"
+                  >
+                    <SwitchCamera className="h-3.5 w-3.5" />
+                    <span>تبديل الكاميرا</span>
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-[#57534E] mb-1">
+                  ملاحظة أو سؤال اختياري مع الصورة (مثلاً: الورق فيه بقع بيضاء / ما اسم هذه الحشرة؟)
+                </label>
+                <input
+                  type="text"
+                  value={cameraCaption}
+                  onChange={(e) => setCameraCaption(e.target.value)}
+                  placeholder="اكتب ملاحظتك أو اتركه فارغاً للتشخيص الذكي التلقائي..."
+                  className="w-full rounded-xl border border-[#D6D3CD] bg-[#FAF9F6] px-3.5 py-2 text-xs text-[#18181B] focus:border-[#166534] focus:bg-white focus:outline-none"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeCameraModal();
+                    imageInputRef.current?.click();
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#D6D3CD] bg-white px-3.5 py-2.5 text-xs font-semibold text-[#57534E] hover:bg-[#FAF9F6]"
+                >
+                  <ImagePlus className="h-4 w-4 text-[#166534]" />
+                  <span>أو رفع صورة من الجهاز</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!cameraReady || Boolean(cameraError)}
+                    onClick={() => captureCameraFrame(false)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#166534]/40 bg-[#F0FDF4] px-3.5 py-2.5 text-xs font-semibold text-[#166534] hover:bg-[#DCFCE7] disabled:opacity-45"
+                  >
+                    <Camera className="h-4 w-4" />
+                    <span>التقاط للمعاينة</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!cameraReady || Boolean(cameraError)}
+                    onClick={() => captureCameraFrame(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#166534] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#14532D] disabled:opacity-45"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    <span>التقاط وتحليل فوري 🌿</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

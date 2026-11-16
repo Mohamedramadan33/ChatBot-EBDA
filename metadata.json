@@ -1,6 +1,6 @@
 {
   "name": "AgriPulse RAG — Agronomy & Agribusiness Advisor",
   "description": "Fact-grounded Python FastAPI and ChromaDB RAG agricultural advisor powered by Gemini 2.5 Flash, live weather and public agricultural database connectors, user feedback evaluation loop, and multi-channel WhatsApp, Messenger, and Web webhooks.",
-  "requestFramePermissions": ["microphone"],
+  "requestFramePermissions": ["microphone", "camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

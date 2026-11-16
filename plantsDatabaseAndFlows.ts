@@ -32,7 +32,7 @@ export interface GovernorateRecord {
 export interface MemberRegistrationRecord {
   registration_id: string;
   session_id: string;
-  channel: "whatsapp" | "messenger" | "widget";
+  channel: "whatsapp" | "messenger" | "instagram" | "widget";
   full_name: string;
   phone: string;
   phone_e164: string;
@@ -44,8 +44,11 @@ export interface MemberRegistrationRecord {
   created_at: string;
 }
 
+export type AppLanguage = "ar" | "en" | "de";
+
 export interface SessionFlowState {
   mode:
+    | "select_language"
     | "idle"
     | "register"
     | "about"
@@ -54,6 +57,7 @@ export interface SessionFlowState {
     | "crop_flow"
     | "smart_advisor"
     | "general_ai";
+  language?: AppLanguage;
   step?:
     | "ask_name"
     | "ask_phone"
@@ -132,7 +136,20 @@ export const OTHER_GENERAL_OPTION_LABEL = "أخرى (سؤال آخر)";
 export const OTHER_PLANT_OPTION_LABEL = "أخرى (نبات غير موجود)";
 export const OTHER_CROP_TOPIC_LABEL = "أخرى (سؤال آخر عن المحصول)";
 
-export const MAIN_MENU_SUGGESTIONS: string[] = [
+export const LANGUAGE_OPTIONS: string[] = [
+  "🇪🇬 العربية (Arabic)",
+  "🇬🇧 English",
+  "🇩🇪 Deutsch (German)",
+];
+
+export const LANGUAGE_SELECTION_PROMPT =
+  "🌿 **الجمعية المصرية للزراعة الحيوية (EBDA)** & **Economy of Love**\n" +
+  "German-Egyptian Project (BMZ · bbw gGmbH · sequa gGmbH)\n\n" +
+  "من فضلك اختر لغة المحادثة:\n" +
+  "Please select your preferred language:\n" +
+  "Bitte wählen Sie Ihre Sprache:";
+
+export const MAIN_MENU_SUGGESTIONS_AR: string[] = [
   "تسجيل في الجمعية (EBDA)",
   "عن الجمعية واقتصاد المحبة",
   "موضوعات الزراعة العضوية",
@@ -141,7 +158,40 @@ export const MAIN_MENU_SUGGESTIONS: string[] = [
   "ترشيح أنسب محصول لأرضي",
   "دليل زراعة محصول كامل",
   OTHER_GENERAL_OPTION_LABEL,
+  "🌐 تغيير اللغة (Language)",
 ];
+
+export const MAIN_MENU_SUGGESTIONS_EN: string[] = [
+  "Register with EBDA",
+  "About EBDA & Economy of Love",
+  "Organic Farming Topics",
+  "Frequently Asked Questions (FAQs)",
+  "Crop Problem or Pest Control",
+  "Recommend Best Crop for My Land",
+  "Complete Organic Crop Guide",
+  "Ask Any Question (Other)",
+  "🌐 Change Language / تغيير اللغة",
+];
+
+export const MAIN_MENU_SUGGESTIONS_DE: string[] = [
+  "Registrierung bei EBDA",
+  "Über EBDA & Economy of Love",
+  "Themen des Ökolandbaus",
+  "Häufig gestellte Fragen (FAQs)",
+  "Pflanzenproblem & Schädlingsbekämpfung",
+  "Geeignete Kulturpflanze empfehlen",
+  "Vollständiger Bio-Anbauleitfaden",
+  "Offene Frage stellen (Andere)",
+  "🌐 Sprache ändern / Change Language",
+];
+
+export const MAIN_MENU_SUGGESTIONS = MAIN_MENU_SUGGESTIONS_AR;
+
+export function getLanguageMenuSuggestions(lang?: AppLanguage): string[] {
+  if (lang === "en") return MAIN_MENU_SUGGESTIONS_EN;
+  if (lang === "de") return MAIN_MENU_SUGGESTIONS_DE;
+  return MAIN_MENU_SUGGESTIONS_AR;
+}
 
 export function inferWhatsAppUiMode(choices: string[]): FlowUiMode {
   if (!choices || choices.length === 0) return "default";
@@ -241,6 +291,190 @@ const CHOICE_SHORT_MAP_24: Record<string, string> = {
   "تحويل الأرض للزراعة الحيوية": "تحويل للزراعة الحيوية",
 };
 
+export function getChoiceIcon(label: string): string {
+  if (!label) return "🌱";
+  const clean = label.trim();
+  const emojiMatch = clean.match(
+    /^(\p{Extended_Pictographic}|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDE4F]|\uD83E[\uDD00-\uDDFF])/u
+  );
+  if (emojiMatch) return emojiMatch[0];
+
+  const l = clean.toLowerCase();
+
+  // 1. Navigation & System Action Commands
+  if (l.includes("رئيسية")) return "🏠";
+  if (l.includes("رجوع") || l.includes("سابق")) return "↩️";
+  if (l.includes("تعديل")) return "✏️";
+  if (l.includes("تأكيد") || l.includes("موافق") || l === "نعم") return "✅";
+  if (l.includes("إلغاء") || l.includes("خروج") || l === "لا") return "✕";
+
+  // 2. Core Primary Journeys
+  if (l.includes("أخرى") || l.includes("غير موجود") || l.includes("سؤال آخر")) return "💬";
+  if (l.includes("موضوعات") || l.includes("محاور")) return "📚";
+  if (
+    l.includes("ما بعد الحصاد") ||
+    l.includes("تسويق") ||
+    l.includes("تصدير") ||
+    l.includes("تخزين")
+  )
+    return "📦";
+  if (
+    l.includes("تسجيل") ||
+    l.includes("عضوية") ||
+    l.includes("انضمام") ||
+    l.includes("استمارة")
+  )
+    return "📝";
+  if (
+    l.includes("عن الجمعية") ||
+    l.includes("اقتصاد المحبة") ||
+    l.includes("ديميتر") ||
+    l.includes("ebda")
+  )
+    return "🌱";
+  if (
+    l.includes("أسئلة شائعة") ||
+    l.includes("faq") ||
+    l.includes("سؤال شائع") ||
+    l.includes("سؤال")
+  )
+    return "❓";
+  if (
+    l.includes("مشكلة") ||
+    l.includes("إصابة") ||
+    l.includes("مرض") ||
+    l.includes("أعراض") ||
+    l.includes("تشخيص")
+  )
+    return "🔍";
+  if (l.includes("ترشيح") || l.includes("أنسب محصول")) return "🧭";
+  if (
+    l.includes("دليل زراعة") ||
+    l.includes("دليل كامل") ||
+    l.includes("إرشادات عامة") ||
+    l.includes("دليل")
+  )
+    return "📖";
+  if (l.includes("صورة") || l.includes("كاميرا")) return "📷";
+  if (l.includes("صوت") || l.includes("تسجيل")) return "🎙️";
+
+  // 3. Crop Categories
+  if (l.includes("محاصيل حقلية") || l.includes("حقلية")) return "🌾";
+  if (l.includes("خضروات") || l.includes("خضر")) return "🍅";
+  if (l.includes("أشجار فاكهة") || l.includes("فاكهة")) return "🍊";
+  if (l.includes("نباتات طبية") || l.includes("عطرية") || l.includes("أعشاب")) return "🌿";
+
+  // 4. ToR 7 Topics
+  if (
+    l.includes("بيئية") ||
+    l.includes("مناخ") ||
+    l.includes("حرارة") ||
+    l.includes("احتياجات")
+  )
+    return "🌤️";
+  if (l.includes("بذور") || l.includes("تقاوي") || l.includes("شتل")) return "🌱";
+  if (l.includes("ري") || l.includes("مياه")) return "💧";
+  if (l.includes("تسميد") || l.includes("كمبوست") || l.includes("تغذية")) return "🧪";
+  if (
+    l.includes("مكافحة") ||
+    l.includes("آفات") ||
+    l.includes("حشرات") ||
+    l.includes("حشائش")
+  )
+    return "🐞";
+  if (l.includes("حصاد") || l.includes("جني") || l.includes("ضم")) return "🚜";
+
+  // 5. Governorates & Geographic Regions
+  if (
+    l.includes("مطروح") ||
+    l.includes("الوادي") ||
+    l.includes("سيناء") ||
+    l.includes("صحراوي")
+  )
+    return "🏜️";
+  if (
+    l.includes("بحيرة") ||
+    l.includes("شرقية") ||
+    l.includes("دقهلية") ||
+    l.includes("منيا") ||
+    l.includes("فيوم") ||
+    l.includes("صعيد") ||
+    l.includes("دلتا") ||
+    l.includes("محافظة")
+  )
+    return "📍";
+
+  // 6. Specific Crops
+  if (l.includes("طماطم")) return "🍅";
+  if (l.includes("خيار")) return "🥒";
+  if (l.includes("بطاطس")) return "🥔";
+  if (l.includes("بصل")) return "🧅";
+  if (l.includes("ثوم")) return "🧄";
+  if (l.includes("جزر")) return "🥕";
+  if (l.includes("فلفل")) return "🫑";
+  if (l.includes("باذنجان")) return "🍆";
+  if (l.includes("قمح") || l.includes("شعير") || l.includes("أرز")) return "🌾";
+  if (l.includes("ذرة")) return "🌽";
+  if (l.includes("برسيم")) return "🍀";
+  if (
+    l.includes("فول") ||
+    l.includes("حمص") ||
+    l.includes("لوبيا") ||
+    l.includes("فاصوليا") ||
+    l.includes("عدس")
+  )
+    return "🫘";
+  if (l.includes("قطن")) return "☁️";
+  if (l.includes("زيتون")) return "🫒";
+  if (l.includes("عنب")) return "🍇";
+  if (
+    l.includes("برتقال") ||
+    l.includes("موالح") ||
+    l.includes("ليمون") ||
+    l.includes("يوسفي")
+  )
+    return "🍊";
+  if (l.includes("مانجو")) return "🥭";
+  if (l.includes("نخيل") || l.includes("بلح")) return "🌴";
+  if (l.includes("فراولة")) return "🍓";
+  if (l.includes("موز")) return "🍌";
+  if (l.includes("تفاح") || l.includes("كمثرى")) return "🍎";
+  if (l.includes("خوخ") || l.includes("مشمش") || l.includes("برقوق")) return "🍑";
+  if (l.includes("بابونج")) return "🌼";
+  if (
+    l.includes("نعناع") ||
+    l.includes("ريحان") ||
+    l.includes("بردقوش") ||
+    l.includes("زعتر") ||
+    l.includes("روزماري")
+  )
+    return "🌿";
+  if (
+    l.includes("كمون") ||
+    l.includes("يانسون") ||
+    l.includes("شمر") ||
+    l.includes("كزبرة") ||
+    l.includes("حبة البركة")
+  )
+    return "🌱";
+  if (l.includes("كركديه")) return "🌺";
+  if (l.includes("سمسم") || l.includes("سوداني")) return "🥜";
+  if (l.includes("بنجر")) return "🍠";
+  if (l.includes("قصب")) return "🎋";
+
+  return "🌱";
+}
+
+export function stripLeadingEmoji(label: string): string {
+  if (!label) return "";
+  return label
+    .replace(
+      /^(\p{Extended_Pictographic}|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDE4F]|\uD83E[\uDD00-\uDDFF])\s*/u,
+      ""
+    )
+    .trim();
+}
+
 export function shortenChoiceTitle(rawLabel: string, maxLen: number): string {
   const clean = rawLabel.replace(/\s+/g, " ").trim();
   if (clean.length <= maxLen) return clean;
@@ -285,6 +519,15 @@ export function shortenChoiceTitle(rawLabel: string, maxLen: number): string {
   return `${source.slice(0, budget).trim()}…`;
 }
 
+export function formatTitleWithIcon(rawLabel: string, maxLen: number): string {
+  const icon = getChoiceIcon(rawLabel);
+  const textBudget = Math.max(4, maxLen - 2);
+  const shortText = shortenChoiceTitle(rawLabel, textBudget);
+  const combined = `${icon} ${shortText}`;
+  if (combined.length <= maxLen) return combined;
+  return `${icon} ${shortText.slice(0, Math.max(2, maxLen - 3)).trim()}`;
+}
+
 function smartTruncateAtBoundary(text: string, maxChars: number, footerNote: string): string {
   if (text.length <= maxChars) return text;
   const targetLen = Math.max(120, maxChars - footerNote.length - 4);
@@ -315,7 +558,7 @@ function smartTruncateAtBoundary(text: string, maxChars: number, footerNote: str
 
 export function formatMessageForChannel(
   rawText: string,
-  channel: "whatsapp" | "messenger" | "widget",
+  channel: "whatsapp" | "messenger" | "instagram" | "widget",
   hasInteractiveChoices = true
 ): string {
   const trimmed = (rawText || "").trim();
@@ -355,9 +598,9 @@ export function formatMessageForChannel(
     return smartTruncateAtBoundary(wa, 3950, "");
   }
 
-  if (channel === "messenger") {
-    // Facebook Messenger mobile/web does NOT parse Markdown (**bold**, *italic*, ###) — strip cleanly into crisp plain Arabic!
-    const fb = trimmed
+  if (channel === "messenger" || channel === "instagram") {
+    // Meta Messenger & Instagram DM do NOT parse Markdown (**bold**, *italic*, ###) — strip cleanly into crisp plain text!
+    const cleanSocial = trimmed
       // Convert Markdown headings into ▪ section markers
       .replace(/^[ \t]*#{1,6}[ \t]+(.+)$/gm, "▪ $1")
       // Convert standalone **Header:** line into ▪ Header:
@@ -373,9 +616,18 @@ export function formatMessageForChannel(
       .replace(/\n{3,}/g, "\n\n")
       .trim();
 
+    if (channel === "instagram") {
+      // Instagram Messaging API max text length is 1000 characters
+      return smartTruncateAtBoundary(
+        cleanSocial,
+        930,
+        "اختر من الأزرار السريعة بالأسفل للمتابعة أو اكتب استفسارك."
+      );
+    }
+
     // Messenger Send API text max is 2000 characters
     return smartTruncateAtBoundary(
-      fb,
+      cleanSocial,
       1920,
       "اختر من الأزرار السريعة بالأسفل للمتابعة أو اكتب استفسارك."
     );
@@ -1448,25 +1700,97 @@ export function buildDeterministicPlantFallback(
 }
 
 // --- INTENT & VALIDATION HELPERS ---
+export function isLanguageSwitchCommand(norm: string, raw: string): boolean {
+  const l = raw.toLowerCase().trim();
+  return (
+    l.includes("تغيير اللغة") ||
+    l.includes("تغير اللغه") ||
+    l.includes("تغيير اللغه") ||
+    l.includes("اللغات") ||
+    l.includes("لغات") ||
+    l.includes("change language") ||
+    l.includes("switch language") ||
+    l.includes("select language") ||
+    l.includes("choose language") ||
+    l.includes("sprache ändern") ||
+    l.includes("sprache wechseln") ||
+    l.includes("sprache wählen") ||
+    l === "🌐 تغيير اللغة (language)" ||
+    l === "🌐 change language / تغيير اللغة" ||
+    l === "🌐 sprache ändern / change language"
+  );
+}
+
+export function detectSelectedLanguage(raw: string, norm: string): AppLanguage | null {
+  const l = raw.toLowerCase().trim();
+  // Arabic detection
+  if (
+    l.includes("عربية") ||
+    l.includes("عربي") ||
+    l === "arabic" ||
+    l.includes("arabic") ||
+    l === "1" ||
+    l.includes("🇪🇬")
+  ) {
+    return "ar";
+  }
+  // English detection
+  if (
+    l.includes("english") ||
+    l.includes("إنجليزي") ||
+    l.includes("انجليزي") ||
+    l === "en" ||
+    l === "2" ||
+    l.includes("🇬🇧")
+  ) {
+    return "en";
+  }
+  // German detection
+  if (
+    l.includes("deutsch") ||
+    l.includes("german") ||
+    l.includes("ألماني") ||
+    l.includes("الماني") ||
+    l === "de" ||
+    l === "3" ||
+    l.includes("🇩🇪")
+  ) {
+    return "de";
+  }
+  return null;
+}
+
 function isMainMenuResetCommand(norm: string): boolean {
-  return normIn(norm, [
-    "القائمة الرئيسية",
-    "رجوع للقائمة الرئيسية",
-    "إلغاء والرجوع للقائمة الرئيسية",
-    "إلغاء",
-    "بداية جديدة",
-    "قائمة رئيسية",
-  ]);
+  const l = norm.toLowerCase();
+  return (
+    normIn(norm, [
+      "القائمة الرئيسية",
+      "رجوع للقائمة الرئيسية",
+      "إلغاء والرجوع للقائمة الرئيسية",
+      "إلغاء",
+      "بداية جديدة",
+      "قائمة رئيسية",
+    ]) ||
+    l.includes("main menu") ||
+    l.includes("hauptmenü") ||
+    l === "home" ||
+    l === "menu" ||
+    l === "menü"
+  );
 }
 
 function isBackCommand(norm: string): boolean {
+  const l = norm.toLowerCase();
   return (
     normIn(norm, ["رجوع", "السابق", "الخطوة السابقة", "رجوع للخطوة السابقة"]) ||
-    norm.startsWith(normalizeArabicForMatch("رجوع لتعديل"))
+    norm.startsWith(normalizeArabicForMatch("رجوع لتعديل")) ||
+    l === "back" ||
+    l === "zurück"
   );
 }
 
 function isRegisterIntent(norm: string, raw: string): boolean {
+  const l = raw.toLowerCase().trim();
   return (
     raw.trim() === "1" ||
     normIn(norm, [
@@ -1481,11 +1805,18 @@ function isRegisterIntent(norm: string, raw: string): boolean {
       "انضمام للجمعية",
       "انضمام لاقتصاد المحبة",
       "عايز أسجل في الجمعية",
-    ])
+    ]) ||
+    l.includes("register with ebda") ||
+    l.includes("registrierung bei ebda") ||
+    l === "register" ||
+    l === "registration" ||
+    l === "registrierung" ||
+    l === "anmeldung"
   );
 }
 
 function isAboutIntent(norm: string, raw: string): boolean {
+  const l = raw.toLowerCase().trim();
   return (
     raw.trim() === "2" ||
     normIn(norm, [
@@ -1501,11 +1832,16 @@ function isAboutIntent(norm: string, raw: string): boolean {
       "شهادة اقتصاد المحبة",
       "شهادة ديميتر",
       "ebda",
-    ])
+    ]) ||
+    l.includes("about ebda") ||
+    l.includes("über ebda") ||
+    l === "about" ||
+    l === "über uns"
   );
 }
 
 function isTopicsHubIntent(norm: string, raw: string): boolean {
+  const l = raw.toLowerCase().trim();
   return (
     raw.trim() === "3" ||
     normIn(norm, [
@@ -1514,11 +1850,16 @@ function isTopicsHubIntent(norm: string, raw: string): boolean {
       "الموضوعات الزراعية",
       "إرشادات الزراعة العضوية",
       "موضوعات الزراعة الحيوية",
-    ])
+    ]) ||
+    l.includes("organic farming topics") ||
+    l.includes("themen des ökolandbaus") ||
+    l === "topics" ||
+    l === "themen"
   );
 }
 
 function isFaqIntent(norm: string, raw: string): boolean {
+  const l = raw.toLowerCase().trim();
   return (
     raw.trim() === "4" ||
     normIn(norm, [
@@ -1528,11 +1869,17 @@ function isFaqIntent(norm: string, raw: string): boolean {
       "اهم الاسئلة",
       "faqs",
       "faq",
-    ])
+    ]) ||
+    l.includes("frequently asked questions") ||
+    l.includes("häufig gestellte fragen") ||
+    l === "faqs" ||
+    l === "faq" ||
+    l === "fragen"
   );
 }
 
 function isCropProblemIntent(norm: string, raw: string): boolean {
+  const l = raw.toLowerCase().trim();
   return (
     raw.trim() === "5" ||
     normIn(norm, [
@@ -1543,11 +1890,16 @@ function isCropProblemIntent(norm: string, raw: string): boolean {
       "اختيار محصول آخر",
       "رجوع لأقسام المحاصيل",
       "عندي مشكلة في محصول",
-    ])
+    ]) ||
+    l.includes("crop problem") ||
+    l.includes("pest control") ||
+    l.includes("pflanzenproblem") ||
+    l.includes("schädlingsbekämpfung")
   );
 }
 
 function isCropGuideIntent(norm: string, raw: string): boolean {
+  const l = raw.toLowerCase().trim();
   return (
     raw.trim() === "7" ||
     normIn(norm, [
@@ -1557,7 +1909,11 @@ function isCropGuideIntent(norm: string, raw: string): boolean {
       "تطبيق الموضوعات على محصول محدد",
       "طريقة زراعة محصول",
       "دليل المحاصيل",
-    ])
+    ]) ||
+    l.includes("complete organic crop guide") ||
+    l.includes("vollständiger bio-anbauleitfaden") ||
+    l.includes("anbauleitfaden") ||
+    l.includes("crop guide")
   );
 }
 
@@ -2526,9 +2882,11 @@ function isPureGreeting(norm: string): boolean {
 }
 
 function isMeaningfulAgriculturalQuery(raw: string, norm: string): boolean {
-  if (!norm || norm.length < 4) return false;
+  if (!norm || norm.length < 3) return false;
   // Reject strings made only of digits or punctuation
   if (!/[\p{L}]/u.test(raw)) return false;
+
+  const rawLower = raw.toLowerCase();
 
   const agriKeywords = [
     "زراع",
@@ -2613,16 +2971,70 @@ function isMeaningfulAgriculturalQuery(raw: string, norm: string): boolean {
     "تصنيع",
     "ملش",
     "فيرمي",
+    // Unlisted agricultural crops
+    "فستق",
+    "حلبي",
+    "بولونيا",
+    "تنين",
+    "دراجون",
+    "افوكادو",
+    "أفوكادو",
+    "كيوي",
+    "كينوا",
+    "ماكاديميا",
+    "تين شوكي",
+    "قشطة",
+    "باشن",
+    "خروب",
+    "كاجو",
+    "بندق",
+    "عين جمل",
+    "لوز",
+    "جوجوبا",
+    "مورينجا",
+    "صبار",
   ];
 
   if (agriKeywords.some((kw) => norm.includes(kw))) {
     return true;
   }
 
-  // Also allow clear multi-word Arabic questions (>= 3 words) starting with question words
-  const words = norm.split(" ").filter((w) => w.length >= 2);
-  const questionStarters = ["ازاي", "كيف", "امتي", "متي", "ليه", "لماذا", "ما", "ايه", "هل", "كم", "عايز", "محتاج", "عندي"];
-  if (words.length >= 3 && questionStarters.some((qs) => words[0] === qs)) {
+  // English & German keywords for agricultural terms and crops
+  const multilingualKeywords = [
+    "organic", "biodynamic", "agriculture", "farming", "crop", "plant", "soil",
+    "fertiliz", "compost", "pest", "disease", "fungus", "harvest", "irrigation",
+    "seed", "seedling", "tree", "leaf", "leaves", "yield", "fallow", "neem",
+    "potassium", "trichoderma", "bacillus", "pistachio", "paulownia", "dragon fruit",
+    "avocado", "quinoa", "olive", "date", "tomato", "potato", "onion", "wheat",
+    "barley", "maize", "clover", "cotton", "citrus", "mango", "grape", "demeter",
+    "carbon credit", "carbon", "ebda",
+    // German terms
+    "ökolandbau", "ökologisch", "biologisch", "dynamisch", "landwirtschaft", "kultur",
+    "pflanze", "boden", "düngung", "dünger", "kompost", "schädling", "krankheit",
+    "pilz", "ernte", "bewässerung", "saat", "samen", "setzling", "baum", "blatt",
+    "ertrag", "pistazie", "drachenfrucht", "weizen", "gerste", "mais", "tomate",
+    "kartoffel", "zwiebel", "oliven", "datteln", "zitrus", "weintrauben", "reben"
+  ];
+
+  if (multilingualKeywords.some((kw) => rawLower.includes(kw))) {
+    return true;
+  }
+
+  // Multi-word question starters in Arabic, English, or German
+  const arabicWords = norm.split(" ").filter((w) => w.length >= 2);
+  const arabicQuestionStarters = ["ازاي", "كيف", "امتي", "متي", "ليه", "لماذا", "ما", "ايه", "هل", "كم", "عايز", "محتاج", "عندي", "ينفع", "ممكن"];
+  if (arabicWords.length >= 2 && arabicQuestionStarters.some((qs) => arabicWords[0] === qs)) {
+    return true;
+  }
+
+  const latinWords = rawLower.split(/\s+/).filter((w) => w.length >= 2);
+  const latinQuestionStarters = ["how", "what", "why", "when", "can", "is", "where", "wie", "was", "warum", "wann", "kann", "wo", "welche", "welcher"];
+  if (latinWords.length >= 2 && latinQuestionStarters.some((qs) => latinWords[0] === qs)) {
+    return true;
+  }
+
+  // Any non-gibberish sentence with 3 or more words
+  if (latinWords.length >= 3 || arabicWords.length >= 3) {
     return true;
   }
 
@@ -2943,7 +3355,7 @@ export function evaluateConversationalFlowTurn(params: {
   plantsDb: PlantDatabaseRecord[];
   existingRegistrationsCount: number;
   sessionId: string;
-  channel: "whatsapp" | "messenger" | "widget";
+  channel: "whatsapp" | "messenger" | "instagram" | "widget";
   hasPriorMessages?: boolean;
 }): EvaluatedFlowTurn {
   const rawTurn = evaluateConversationalFlowTurnInternal(params);
@@ -2971,36 +3383,126 @@ function evaluateConversationalFlowTurnInternal(params: {
   plantsDb: PlantDatabaseRecord[];
   existingRegistrationsCount: number;
   sessionId: string;
-  channel: "whatsapp" | "messenger" | "widget";
+  channel: "whatsapp" | "messenger" | "instagram" | "widget";
   hasPriorMessages?: boolean;
 }): EvaluatedFlowTurn {
   const raw = params.userMessage.trim();
   const norm = normalizeArabicForMatch(raw);
   const flow: SessionFlowState = params.currentFlow || { mode: "idle" };
 
+  // 0. Language Switch Intent at ANY point
+  if (isLanguageSwitchCommand(norm, raw)) {
+    return makeInstantResult(
+      LANGUAGE_SELECTION_PROMPT,
+      LANGUAGE_OPTIONS,
+      { mode: "select_language", language: flow.language }
+    );
+  }
+
+  // 0b. Process Language Selection Choice
+  const userLangChoice = detectSelectedLanguage(raw, norm);
+  if (
+    userLangChoice &&
+    (flow.mode === "select_language" || (!flow.language && !params.hasPriorMessages))
+  ) {
+    const welcome =
+      userLangChoice === "en"
+        ? "Welcome to the **Egyptian BioDynamic Association (EBDA)** & **Economy of Love (EoL)**! 🌿\n\nSupporting sustainable organic and biodynamic farming, Demeter certification, and Carbon Credits in partnership with the German-Egyptian SI/EoL Project (BMZ, bbw gGmbH, sequa gGmbH).\n\nPlease choose a service below or type your agricultural question directly:"
+        : userLangChoice === "de"
+        ? "Herzlich willkommen bei der **Egyptian BioDynamic Association (EBDA)** & **Economy of Love (EoL)**! 🌿\n\nFörderung des ökologischen und biologisch-dynamischen Landbaus, Demeter-Zertifizierung und Kohlenstoffzertifikate (Carbon Credits) im Rahmen des deutsch-ägyptischen SI/EoL-Projekts (BMZ, bbw gGmbH, sequa gGmbH).\n\nBitte wählen Sie einen Dienst aus oder stellen Sie direkt Ihre Frage:"
+        : "أهلاً وسهلاً بحضرتك في **الجمعية المصرية للزراعة الحيوية (EBDA)** ومبادرة **اقتصاد المحبة (Economy of Love)**! 🌿\n\nندعم المزارعين في التحول للزراعة العضوية والحيوية، شهادات الكربون، واعتماد ديميتر الدولي بالشراكة مع المشروع الألماني-المصري (BMZ · bbw · sequa).\n\nاختر الخدمة المطلوبة من القائمة بالأسفل، أو اكتب استفسارك مباشرة:";
+
+    return makeInstantResult(
+      welcome,
+      getLanguageMenuSuggestions(userLangChoice),
+      { mode: "idle", language: userLangChoice }
+    );
+  }
+
+  // 0c. Initial Language Prompt at Turn 0 or when in select_language mode
+  if (flow.mode === "select_language" || (!flow.language && !params.hasPriorMessages)) {
+    return makeInstantResult(
+      LANGUAGE_SELECTION_PROMPT,
+      LANGUAGE_OPTIONS,
+      { mode: "select_language", language: flow.language }
+    );
+  }
+
+  const currentLang = flow.language || "ar";
+
   // 1. Global Main Menu Reset at ANY step (no repeated greeting)
   if (isMainMenuResetCommand(norm)) {
+    const menuPrompt =
+      currentLang === "en"
+        ? "Please choose a service from the menu below, or type your question directly:"
+        : currentLang === "de"
+        ? "Bitte wählen Sie einen Dienst aus dem folgenden Menü oder stellen Sie direkt Ihre Frage:"
+        : "اختر الخدمة المطلوبة من القائمة بالأسفل، أو اكتب استفسارك مباشرة:";
     return makeInstantResult(
-      "اختر الخدمة المطلوبة من القائمة بالأسفل، أو اكتب استفسارك مباشرة:",
-      MAIN_MENU_SUGGESTIONS,
-      { mode: "idle" }
+      menuPrompt,
+      getLanguageMenuSuggestions(currentLang),
+      { mode: "idle", language: currentLang }
     );
   }
 
   // 2. Global Top-Level Journey Triggers (when not inside registration input steps)
   if (isRegisterIntent(norm, raw) && flow.mode !== "register") {
+    const regPrompt =
+      currentLang === "en"
+        ? "We are pleased to welcome you to the **Egyptian BioDynamic Association (EBDA)** & **Economy of Love (EoL)** standard for technical support, field training, and Demeter / Carbon Credit certification.\n\n**Step 1 of 6:** Please type your **Full Name**:"
+        : currentLang === "de"
+        ? "Wir freuen uns über Ihr Interesse an der **Egyptian BioDynamic Association (EBDA)** & **Economy of Love (EoL)** für fachliche Beratung, Praxisschulungen und Demeter-/CO2-Zertifikate.\n\n**Schritt 1 von 6:** Bitte geben Sie Ihren **vollständigen Namen** ein:"
+        : "يسعدنا انضمامك لعضوية **الجمعية المصرية للزراعة الحيوية (EBDA)** ومعايير **اقتصاد المحبة (EoL)** للاستفادة من الدعم الفني، التدريبات الحقلية، وشهادات الاعتماد والكربون.\n\n**الخطوة 1 من 6:** من فضلك اكتب **الاسم الثلاثي بالكامل**:";
+    const cancelReply = currentLang === "en" ? "Main Menu" : currentLang === "de" ? "Hauptmenü" : "القائمة الرئيسية";
     return makeInstantResult(
-      "يسعدنا انضمامك لعضوية **الجمعية المصرية للزراعة الحيوية (EBDA)** ومعايير **اقتصاد المحبة (EoL)** للاستفادة من الدعم الفني، التدريبات الحقلية، وشهادات الاعتماد والكربون.\n\n**الخطوة 1 من 6:** من فضلك اكتب **الاسم الثلاثي بالكامل**:",
-      ["القائمة الرئيسية"],
+      regPrompt,
+      [cancelReply],
       {
         mode: "register",
         step: "ask_name",
         draft_registration: {},
+        language: currentLang,
       }
     );
   }
 
   if (isAboutIntent(norm, raw) && flow.mode !== "register") {
+    if (currentLang === "en") {
+      return makeInstantResult(
+        "**Egyptian BioDynamic Association (EBDA):**\n" +
+          "A registered non-governmental organization under the Egyptian Ministry of Social Solidarity, established in **1990** to champion organic and biodynamic agriculture across Egypt.\n\n" +
+          "- **Economy of Love (EoL) & DEMETER Trademark:** EBDA administers the international DEMETER trademark for biodynamic crops in Egypt and created the pioneering **Economy of Love** certification standard, supporting farmers against climate change (Carbon Credits), enhancing food security, and guaranteeing socially fair employment.\n" +
+          "- **German-Egyptian Partnership (SI/EoL Project):** Supported under the German-Egyptian Project for Enhancing Career Paths in the Environmental Sector, funded by the German Federal Ministry for Economic Cooperation and Development **(BMZ)** and implemented by **bbw gGmbH** and **sequa gGmbH**.\n" +
+          "- **Services for Farmers:** Onboarding and conversion of new farms, practical field workshops, technical guidance for international audits, and applied organic research across **67+ crops**.\n\n" +
+          "Select an option below to explore further or register your farm:",
+        [
+          "Register with EBDA",
+          "Organic Farming Topics",
+          "Frequently Asked Questions (FAQs)",
+          "Main Menu",
+        ],
+        { mode: "about", language: currentLang }
+      );
+    }
+
+    if (currentLang === "de") {
+      return makeInstantResult(
+        "**Egyptian BioDynamic Association (EBDA):**\n" +
+          "Eine beim ägyptischen Ministerium für soziale Solidarität registrierte Nichtregierungsorganisation, gegründet **1990** zur Förderung des ökologischen und biologisch-dynamischen Landbaus in Ägypten.\n\n" +
+          "- **Economy of Love (EoL) & DEMETER-Marke:** EBDA verwaltet das internationale DEMETER-Warenzeichen für biologisch-dynamische Erzeugnisse in Ägypten und verbreitet den Zertifizierungsstandard **Economy of Love**, der Landwirte im Klimaschutz (Kohlenstoffzertifikate / Carbon Credits), bei Ernährungssicherheit und sozial gerechter Beschäftigung unterstützt.\n" +
+          "- **Deutsch-Ägyptische Partnerschaft (SI/EoL-Projekt):** Gefördert vom Bundesministerium für wirtschaftliche Zusammenarbeit und Entwicklung **(BMZ)** und umgesetzt durch das Bildungswerk der Bayerischen Wirtschaft **(bbw gGmbH)** und **sequa gGmbH**.\n" +
+          "- **Leistungen für Landwirte:** Registrierung und Umstellung von Betrieben, praxisnahe Schulungen, Vorbereitung auf internationale Zertifizierungsaudits und angewandte Forschung für über **67 Kulturpflanzen**.\n\n" +
+          "Wählen Sie eine Option:",
+        [
+          "Registrierung bei EBDA",
+          "Themen des Ökolandbaus",
+          "Häufig gestellte Fragen (FAQs)",
+          "Hauptmenü",
+        ],
+        { mode: "about", language: currentLang }
+      );
+    }
+
     return makeInstantResult(
       "**الجمعية المصرية للزراعة الحيوية (EBDA):**\n" +
         "منظمة غير حكومية مسجلة لدى وزارة التضامن الاجتماعي المصرية، تأسست عام **1990** لتعزيز الزراعة العضوية والحيوية في مصر.\n\n" +
@@ -3016,8 +3518,34 @@ function evaluateConversationalFlowTurnInternal(params: {
         "تسجيل في الجمعية (EBDA)",
         "القائمة الرئيسية",
       ],
-      { mode: "about" }
+      { mode: "about", language: currentLang }
     );
+  }
+
+  // Photo diagnosis instruction trigger (across WhatsApp, Messenger, Web)
+  const rawLowerTrim = raw.toLowerCase().trim();
+  if (
+    flow.mode !== "register" &&
+    (rawLowerTrim.includes("فحص صورة") ||
+      rawLowerTrim.includes("تصوير النبات") ||
+      rawLowerTrim.includes("scan another photo") ||
+      rawLowerTrim.includes("weiteres foto prüfen"))
+  ) {
+    const promptMsg =
+      currentLang === "en"
+        ? "📷 **Smart Organic Plant & Disease Photo Scanner:**\n\nPlease upload a photo or snap a live picture using the camera icon below in clear natural light:\n• Leaf spots, yellowing, curling, fungi, or insects\n• Fruits, stems, roots, or soil issues\n\nI will identify what's in the photo and give you a **100% Organic & Biodynamic** treatment plan immediately!"
+        : currentLang === "de"
+        ? "📷 **Intelligente Bio-Pflanzendiagnose per Foto:**\n\nBitte laden Sie ein Foto hoch oder machen Sie direkt eine Aufnahme bei gutem Tageslicht:\n• Blattflecken, Vergilbung, Pilzbefall oder Schädlinge\n• Früchte, Stängel, Wurzeln oder Boden\n\nWir analysieren das Bild sofort und geben Ihnen eine **100% biologische / Demeter-konforme Lösung**!"
+        : "📷 **المستشار الذكي لتشخيص صور النباتات والأمراض:**\n\nيمكنك الآن **رفع صورة من جهازك 🖼️** أو **التصوير بالكاميرا مباشرة 📷** في ضوء شمس واضح:\n• أوراق نبات فيها اصفرار، بقع، بياض دقيقي، تجعد، أو حشرات\n• ثمار، سيقان، جذور، أو أي عينة زراعية\n\nوسيقوم الذكاء الاصطناعي بتحليل الصورة فوراً، تحديد المرض أو الآفة أو النوع بدقة، وتقديم **الحل والعلاج العضوي 100%**!";
+
+    const backBtns =
+      currentLang === "en"
+        ? ["Main Menu", "Organic Farming Topics"]
+        : currentLang === "de"
+        ? ["Hauptmenü", "Themen des Ökolandbaus"]
+        : ["القائمة الرئيسية", "موضوعات الزراعة العضوية"];
+
+    return makeInstantResult(promptMsg, backBtns, { mode: "idle", language: currentLang });
   }
 
   if (
@@ -4310,12 +4838,26 @@ ${activePlant.full_reference_text}`,
   // IDLE / ABOUT / GENERAL CONVERSATION WITH ORGANIC AI & PROFESSIONAL FALLBACK
   // =========================================================================
   if (isPureGreeting(norm)) {
-    const replyText = params.hasPriorMessages
-      ? "تفضل باختيار الخدمة المطلوبة من القائمة بالأسفل أو اكتب سؤالك مباشرة:"
-      : params.channel === "widget"
-      ? "أهلاً وسهلاً بحضرتك على الموقع الرسمي لـ **الجمعية المصرية للزراعة الحيوية (EBDA)** ومبادرة **اقتصاد المحبة (Economy of Love)** — نقدر نساعدك إزاي النهارده؟"
-      : "أهلاً وسهلاً بيك في **الجمعية المصرية للزراعة الحيوية (EBDA)** ومبادرة **اقتصاد المحبة**، نقدر نساعدك إزاي؟";
-    return makeInstantResult(replyText, MAIN_MENU_SUGGESTIONS, { mode: "idle" });
+    const replyText =
+      currentLang === "en"
+        ? (params.hasPriorMessages
+            ? "Please choose a service from the menu below or type your question directly:"
+            : "Welcome to the **Egyptian BioDynamic Association (EBDA)** & **Economy of Love**! How may we assist you today?")
+        : currentLang === "de"
+        ? (params.hasPriorMessages
+            ? "Bitte wählen Sie einen Dienst aus dem folgenden Menü oder stellen Sie direkt Ihre Frage:"
+            : "Herzlich willkommen bei der **Egyptian BioDynamic Association (EBDA)** & **Economy of Love**! Wie können wir Ihnen heute helfen?")
+        : (params.hasPriorMessages
+            ? "تفضل باختيار الخدمة المطلوبة من القائمة بالأسفل أو اكتب سؤالك مباشرة:"
+            : params.channel === "widget"
+            ? "أهلاً وسهلاً بحضرتك على الموقع الرسمي لـ **الجمعية المصرية للزراعة الحيوية (EBDA)** ومبادرة **اقتصاد المحبة (Economy of Love)** — نقدر نساعدك إزاي النهارده؟"
+            : "أهلاً وسهلاً بيك في **الجمعية المصرية للزراعة الحيوية (EBDA)** ومبادرة **اقتصاد المحبة**، نقدر نساعدك إزاي؟");
+
+    return makeInstantResult(
+      replyText,
+      getLanguageMenuSuggestions(currentLang),
+      { mode: "idle", language: currentLang }
+    );
   }
 
   // Check if user directly mentioned any of the 67 CSV crops in free text
@@ -4348,6 +4890,7 @@ ${activePlant.full_reference_text}`,
         selected_plant_id: primary.id,
         selected_plant_name: primary.name,
         is_other_plant: false,
+        language: currentLang,
       },
     };
   }
@@ -4363,6 +4906,7 @@ ${activePlant.full_reference_text}`,
         step: "confirm_fuzzy_plant",
         crop_submode: "problem",
         pending_fuzzy_plant_id: idleFuzzyPlant.id,
+        language: currentLang,
       }
     );
   }
@@ -4387,6 +4931,7 @@ ${activePlant.full_reference_text}`,
         crop_submode: "problem",
         selected_plant_name: idleExtraCrop,
         is_other_plant: true,
+        language: currentLang,
       },
     };
   }
@@ -4406,28 +4951,48 @@ ${activePlant.full_reference_text}`,
         mode: "faq",
         step: "browse_faqs",
         faq_page: matchedFaq.number <= 6 ? 0 : 1,
+        language: currentLang,
       }
     );
   }
 
   // Professional unclear-input response if user wrote gibberish / wrong / non-agricultural text
   if (!isMeaningfulAgriculturalQuery(raw, norm)) {
+    const unclearText =
+      currentLang === "en"
+        ? "We could not fully understand your message. Please rephrase your agricultural question clearly or choose an option from the menu below:"
+        : currentLang === "de"
+        ? "Wir konnten Ihre Nachricht leider nicht eindeutig verstehen. Bitte formulieren Sie Ihre landwirtschaftliche Frage noch einmal oder wählen Sie eine Option aus dem Menü:"
+        : "عذراً، لم نتمكن من فهم رسالتك بشكل واضح. يرجى إعادة كتابة استفسارك بوضوح، أو الاختيار مباشرة من خدمات **الجمعية المصرية للزراعة الحيوية (EBDA)** بالأسفل (أو اختيار **«أخرى»** لأي سؤال مفتوح):";
+
     return makeInstantResult(
-      "عذراً، لم نتمكن من فهم رسالتك بشكل واضح. يرجى إعادة كتابة استفسارك بوضوح، أو الاختيار مباشرة من خدمات **الجمعية المصرية للزراعة الحيوية (EBDA)** بالأسفل (أو اختيار **«أخرى»** لأي سؤال مفتوح):",
-      MAIN_MENU_SUGGESTIONS,
-      { mode: "idle" }
+      unclearText,
+      getLanguageMenuSuggestions(currentLang),
+      { mode: "idle", language: currentLang }
     );
   }
 
   // Meaningful general organic/biodynamic farming question -> answer from AI in simple 100% organic style!
+  const menuSuggestions = getLanguageMenuSuggestions(currentLang);
+  const generalContext =
+    currentLang === "en"
+      ? `[General Agricultural Query in English]: Answer the user's question ("${raw}") using comprehensive 100% organic and biodynamic agricultural knowledge according to EBDA and Demeter standards. Detail per-feddan/hectare application rates (mature compost, bio-fertilizers, neem oil, potassium soap, Trichoderma, Bacillus) in clear, structured points without synthetic chemicals and without greeting.`
+      : currentLang === "de"
+      ? `[Allgemeine landwirtschaftliche Frage auf Deutsch]: Beantworten Sie die Frage des Landwirts ("${raw}") mit fundiertem, 100% ökologischem und biologisch-dynamischem Fachwissen gemäß EBDA- und Demeter-Standards (Reifer Kompost, Bio-Dünger, Neem, Schmierseife, Trichoderma, Bacillus subtilis) in klaren, strukturierten Punkten ohne synthetische Chemie und ohne Begrüßung.`
+      : `[سؤال زراعي عام]: أجب على سؤال المزارع (${raw}) من الذكاء الاصطناعي بمعلومات **عضوية وحيوية (Organic 100%)** وبأسلوب مبسط وعملي جداً في نقاط واضحة يسهل على المزارع فهمها وتطبيقها (مثل أسلوب بيانات الجمعية تماماً)، بدون أي كيماويات وبدون تحية في البداية.`;
+
   return {
     kind: "ai_with_db",
     matched_plants: [],
-    focused_db_context: `[سؤال زراعي عام]: أجب على سؤال المزارع (${raw}) من الذكاء الاصطناعي بمعلومات **عضوية وحيوية (Organic 100%)** وبأسلوب مبسط وعملي جداً في نقاط واضحة يسهل على المزارع فهمها وتطبيقها (مثل أسلوب بيانات الجمعية تماماً)، بدون أي كيماويات وبدون تحية في البداية.`,
+    focused_db_context: generalContext,
     deterministic_fallback:
-      "في الزراعة العضوية والحيوية بنعتمد على الكمبوست تام التحلل وشاي الكمبوست وصخر الفوسفات والفلسبار للتغذية، وزيت النيم والصابون البوتاسي وباسيلس وترايكوديرما للوقاية والمكافحة الطبيعية بدون أي كيماويات.",
-    quick_replies: MAIN_MENU_SUGGESTIONS,
-    ui_mode: inferWhatsAppUiMode(MAIN_MENU_SUGGESTIONS),
-    next_flow_state: { mode: "idle" },
+      currentLang === "en"
+        ? "In organic and biodynamic agriculture, we rely on mature compost, compost tea, rock phosphate, and feldspar for soil fertility, plus neem oil, potassium soap, Bacillus, and Trichoderma for natural pest and disease control without synthetic chemicals."
+        : currentLang === "de"
+        ? "Im ökologischen und biologisch-dynamischen Landbau setzen wir auf reifen Kompost, Komposttee, Rohphosphat und Feldspat zur Bodenverbesserung sowie Neemöl, Kaliseife, Bacillus und Trichoderma zur natürlichen Schädlings- und Krankheitsregulierung ohne synthetische Chemie."
+        : "في الزراعة العضوية والحيوية بنعتمد على الكمبوست تام التحلل وشاي الكمبوست وصخر الفوسفات والفلسبار للتغذية، وزيت النيم والصابون البوتاسي وباسيلس وترايكوديرما للوقاية والمكافحة الطبيعية بدون أي كيماويات.",
+    quick_replies: menuSuggestions,
+    ui_mode: inferWhatsAppUiMode(menuSuggestions),
+    next_flow_state: { mode: "idle", language: currentLang },
   };
 }
